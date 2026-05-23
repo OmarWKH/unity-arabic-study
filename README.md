@@ -15,10 +15,10 @@ TMP **3.2.0-pre.15** adds OpenType Layout features (**Ligatures, Mark-to-Base, M
 
 Both projects:
 
-- Are Unity 6 (`6000.0.32f1`)
+- Are Unity 6 (`6000.3.14f1`)
 - Use the same Arabic font (**Amiri Regular**, SIL OFL) so the only variable is the TMP version
 - Include **RTLTMPro** via Package Manager git URL
-- Ship with a placeholder scene `Assets/Scenes/ArabicTest.unity` — you populate the TMP text objects after first open (see each project's `SETUP.md`)
+- Ship an Editor automation script (`Assets/Editor/ArabicTestSetup.cs`) that generates the font asset and test scene from a single menu item: **Arabic Study → Run Full Setup**
 
 ## Test string
 
@@ -31,9 +31,10 @@ The shared test string lives at `Assets/ArabicTestString.txt` in each project an
 
 ## First-open workflow
 
-1. Open the project in Unity Hub (it will resolve packages — the preview project will pull TMP 3.2.0-pre.15).
-2. When TMP prompts to import the TMP Essentials, **decline** for the preview project (the new pipeline doesn't need the legacy essentials package the same way) — accept for the built-in project.
-3. Follow `SETUP.md` inside each project to finish wiring the test scene.
+1. Open one of the projects in Unity Hub. Let Package Manager resolve (the preview project will pull TMP 3.2.0-pre.15 and may take a few minutes the first time).
+2. Import TMP Essentials when prompted.
+3. Run **menu → Arabic Study → Run Full Setup**. This generates the SDF font asset and the `Assets/Scenes/ArabicTest.unity` scene, ready to enter Play mode.
+4. Repeat for the other project. See each project's `SETUP.md` for details and the OpenType-feature notes for the preview project.
 
 ## License notes
 

@@ -1,47 +1,30 @@
 # Setup — TMP 3.2.0-pre.15 (preview)
 
-Project pinned to Unity **6000.0.32f1** with `com.unity.ugui` **3.2.0-pre.15`. This preview adds OpenType Layout support (Ligatures, Mark-to-Base, Mark-to-Mark) — the features that should make harakat positioning correct for the first time in TMP.
+Project pinned to Unity **6000.3.14f1** with `com.unity.ugui` **3.2.0-pre.15**. This preview adds OpenType Layout support (Ligatures, Mark-to-Base, Mark-to-Mark) — the features that should make harakat positioning correct for the first time in TMP.
 
-## First open
+## Automated setup
 
-1. Open this folder in Unity Hub. Package Manager will resolve `com.unity.ugui` 3.2.0-pre.15 and RTLTMPro from GitHub. **This may take a few minutes the first time.**
-2. The preview TMP package's importer is different from the legacy one — if a TMP Essentials prompt appears, you can still import (it's compatible), but the font asset workflow in step 2 below is what matters.
+1. Open this folder in Unity Hub. Package Manager resolves `com.unity.ugui` 3.2.0-pre.15 and RTLTMPro — first resolve can take a few minutes.
+2. If a TMP Essentials prompt appears, import it.
+3. Once the project is loaded with no compile errors, run **menu → Arabic Study → Run Full Setup**.
 
-## Build the TMP font asset (with OpenType features enabled)
+[`Assets/Editor/ArabicTestSetup.cs`](Assets/Editor/ArabicTestSetup.cs):
 
-1. `Window > TextMeshPro > Font Asset Creator`
-2. **Source Font File**: `Assets/Fonts/Amiri-Regular.ttf`
-3. **Sampling Point Size**: Auto Sizing
-4. **Padding**: 9
-5. **Packing Method**: Optimum
-6. **Atlas Resolution**: 2048 x 2048
-7. **Character Set**: `Unicode Range (Hex)`
-8. **Character Sequence**: `0020-007E,00A0-00FF,0600-06FF,0750-077F,FB50-FDFF,FE70-FEFF`
-9. **Render Mode**: SDFAA
-10. Click **Generate Font Atlas**, then **Save as…** → `Assets/Fonts/Amiri-Regular SDF.asset`.
-11. **IMPORTANT — enable OpenType layout features**: select the saved font asset, find the **OpenType / Font Features** section in the inspector, and enable at minimum:
-    - `liga` (Standard Ligatures)
-    - `rlig` (Required Ligatures)
-    - `mark` (Mark Positioning — **Mark-to-Base**)
-    - `mkmk` (Mark-to-Mark Positioning)
-    - `init`, `medi`, `fina`, `isol` (Arabic positional shaping)
-    - `ccmp` (Glyph Composition / Decomposition)
-
-    These are the key features the new pipeline can finally consume from the OTF/TTF.
-
-## Build the test scene
-
-1. `File > New Scene` → Basic (Built-in) → save as `Assets/Scenes/ArabicTest.unity`.
-2. `GameObject > UI > Text - TextMeshPro`. Name it `ArabicText_OpenType`.
-3. Set its **Font Asset** to `Amiri-Regular SDF`.
-4. Paste the contents of `Assets/ArabicTestString.txt`.
-5. *(Optional)* Duplicate, name `ArabicText_RTLTMPro`, and replace the TMP component with **RTL Text Mesh Pro UGUI**. The hypothesis is that with OpenType layout enabled, the raw `TextMeshProUGUI` may render Arabic correctly **without** needing the RTLTMPro pre-shaping pass — comparing the two side-by-side is the experiment.
+- Creates `Assets/Fonts/Amiri-Regular SDF.asset` (dynamic SDF atlas, 2048², SDFAA, padding 9, multi-atlas enabled).
+- **Best-effort enables the OpenType layout features** on the font asset: `liga`, `rlig`, `mark`, `mkmk`, `init`, `medi`, `fina`, `isol`, `ccmp`. If the API has shifted in this preview revision, it logs a clear warning naming the asset and the tags — toggle them in the inspector and re-run.
+- Builds `Assets/Scenes/ArabicTest.unity` with two text blocks:
+  - `ArabicText_Raw` — plain `TextMeshProUGUI` fed the [test string](Assets/ArabicTestString.txt) **without** RTLTMPro. The hypothesis is that the new OpenType pipeline does shaping itself, so this should now render correctly.
+  - `ArabicText_RTL` — `RTLTextMeshPro`, same string. Comparing the two shows whether RTLTMPro is now redundant.
 
 ## What to compare against `builtin-tmp/`
 
 Open the same scene in both projects and screenshot. You should see in this project:
 
-- Harakat **anchored to their base letter** (Mark-to-Base working).
-- Shadda + vowel rendering as a single composed cluster (Mark-to-Mark working).
-- Standard ligatures (e.g. `لله`) rendering as the proper ligature glyph (Ligatures working).
+- Harakat **anchored to their base letter** (Mark-to-Base working — GPOS `mark`).
+- Shadda + vowel rendering as a single composed cluster (Mark-to-Mark working — GPOS `mkmk`).
+- Standard ligatures (e.g. `لله`) rendering as the proper ligature glyph (GSUB `liga` / `rlig`).
 - Possibly: correct contextual shaping **without RTLTMPro pre-processing**, since the GSUB `init/medi/fina/isol` features now run inside TMP itself.
+
+## If the auto-enable warning fires
+
+Open `Assets/Fonts/Amiri-Regular SDF.asset` in the inspector, find the **OpenType / Font Features** section, and toggle on: `liga`, `rlig`, `mark`, `mkmk`, `init`, `medi`, `fina`, `isol`, `ccmp`. Then re-run the menu item to rebuild the scene — or just save and re-open the scene.
