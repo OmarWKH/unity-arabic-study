@@ -235,7 +235,7 @@ namespace ArabicStudy.Editor
             tmp.text = text;
             tmp.alignment = TextAlignmentOptions.MidlineRight;
             tmp.isRightToLeftText = true;
-            tmp.enableWordWrapping = true;
+            tmp.textWrappingMode = TextWrappingModes.Normal;
         }
 
         private static void CreateRtlText(Transform parent, string name, string text,
@@ -250,7 +250,7 @@ namespace ArabicStudy.Editor
             tmp.fontSize = 40;
             tmp.text = text;
             tmp.alignment = TextAlignmentOptions.MidlineRight;
-            tmp.enableWordWrapping = true;
+            tmp.textWrappingMode = TextWrappingModes.Normal;
         }
     }
 }
