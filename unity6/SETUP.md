@@ -1,30 +1,27 @@
-# Setup — TMP 3.2.0-pre.15 (preview)
+# unity6 — setup notes
 
-Project pinned to Unity **6000.3.14f1** with `com.unity.ugui` **3.2.0-pre.15**. This preview adds OpenType Layout support (Ligatures, Mark-to-Base, Mark-to-Mark) — the features that should make harakat positioning correct for the first time in TMP.
+> *Drafted by Claude (Anthropic). Verify project-specific claims before relying on them.*
 
-## Automated setup
+The main Unity project of this repo. Unity **6000.3.14f1** with the bundled TMP that ships inside `com.unity.ugui` 2.0.0. RTLTMPro pulled from the [OmarWKH fork](https://github.com/OmarWKH/RTLTMPro). See [`../FINDINGS.md`](../FINDINGS.md) for the bigger picture; this document covers only the project-local setup.
 
-1. Open this folder in Unity Hub. Package Manager resolves `com.unity.ugui` 3.2.0-pre.15 and RTLTMPro — first resolve can take a few minutes.
-2. If a TMP Essentials prompt appears, import it.
-3. Once the project is loaded with no compile errors, run **menu → Arabic Study → Run Full Setup**.
+## First open
 
-[`Assets/Editor/ArabicTestSetup.cs`](Assets/Editor/ArabicTestSetup.cs):
+1. Open this folder in Unity Hub with editor **6000.3.14f1**. Package Manager will resolve UGUI (bundled) and RTLTMPro automatically.
+2. Accept the TMP Essentials import when prompted.
 
-- Creates `Assets/Fonts/Amiri-Regular SDF.asset` (dynamic SDF atlas, 2048², SDFAA, padding 9, multi-atlas enabled).
-- **Best-effort enables the OpenType layout features** on the font asset: `liga`, `rlig`, `mark`, `mkmk`, `init`, `medi`, `fina`, `isol`, `ccmp`. If the API has shifted in this preview revision, it logs a clear warning naming the asset and the tags — toggle them in the inspector and re-run.
-- Builds `Assets/Scenes/ArabicTest.unity` with two text blocks:
-  - `ArabicText_Raw` — plain `TextMeshProUGUI` fed the [test string](Assets/ArabicTestString.txt) **without** RTLTMPro. The hypothesis is that the new OpenType pipeline does shaping itself, so this should now render correctly.
-  - `ArabicText_RTL` — `RTLTextMeshPro`, same string. Comparing the two shows whether RTLTMPro is now redundant.
+## To render Arabic text
 
-## What to compare against `builtin-tmp/`
+1. Pick one of the validated fonts from `Assets/Fonts/` — `Vazirmatn-Variable-pfb-rehomed.ttf`, `Tajawal-Regular-pfb-rehomed.ttf`, or `ThmanyahSans-Regular-pfb-rehomed.otf`. These are PF-B-rehomed versions of the three fonts empirically confirmed to render shadda+harakat correctly in TMP without further patching.
+2. Build a TMP SDF font asset from your chosen font (Font Asset Creator, or there are pre-built `*SDF.asset` files alongside each TTF).
+3. **Enable `Multi Atlas Textures` on the font asset.** This is critical — without it TMP's runtime dynamic-atlas adder silently drops codepoints in the Presentation Forms ranges, producing `□` tofu. The finding is documented in [`../FINDINGS.md`](../FINDINGS.md).
+4. Use the font in a `TextMeshProUGUI` via the `RTLTextMeshPro` component. Leave Preserve Shadda off for these three fonts (they have the precomposed shadda+vowel codepoints, so the RTLTMPro-emitted U+FC5E–FC63 forms render correctly).
 
-Open the same scene in both projects and screenshot. You should see in this project:
+The repo includes per-font test scenes (`Assets/Scenes/ArabicTest-*.unity`) used during the empirical evaluation — useful for visual comparison.
 
-- Harakat **anchored to their base letter** (Mark-to-Base working — GPOS `mark`).
-- Shadda + vowel rendering as a single composed cluster (Mark-to-Mark working — GPOS `mkmk`).
-- Standard ligatures (e.g. `لله`) rendering as the proper ligature glyph (GSUB `liga` / `rlig`).
-- Possibly: correct contextual shaping **without RTLTMPro pre-processing**, since the GSUB `init/medi/fina/isol` features now run inside TMP itself.
+## Editor tools (`Arabic Study` menu)
 
-## If the auto-enable warning fires
+- **Font Table Search** — Chip-rendered inspector of any TMP font asset's tables (Character, Glyph, Ligature, Pair Adjustment, Mark-to-Base, Mark-to-Mark). Searchable by character / codepoint / glyph ID, with a secondary filter that narrows to records referencing both glyphs.
+- **RTLTMPro Debugger** — Before/after view of the codepoint stream when RTLTMPro's `FixRTL` is applied to a string. Each row has an Inspect button that deep-links into the Font Table Search window.
+- **Font Feature Patcher** — *Abandoned.* Left in place for archaeology only. See the abandoned-tools section in `../FINDINGS.md` for why; the practical fix is to switch to a font that doesn't trigger the underlying TMP bug.
 
-Open `Assets/Fonts/Amiri-Regular SDF.asset` in the inspector, find the **OpenType / Font Features** section, and toggle on: `liga`, `rlig`, `mark`, `mkmk`, `init`, `medi`, `fina`, `isol`, `ccmp`. Then re-run the menu item to rebuild the scene — or just save and re-open the scene.
+(`Arabic Study → Run Full Setup` is also present in the menu — it's a scratch tool from early in the investigation that builds a font asset and test scene from Amiri. Not useful as a workflow now that we know Amiri itself is one of the fonts that misrenders.)
