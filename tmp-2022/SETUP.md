@@ -1,16 +1,16 @@
 # tmp-2022 — Control project (Unity 2022.3 LTS + standalone preview TMP)
 
-The purpose of this project is to **confirm** that the OpenType layout features (Ligatures, Mark-to-Base, Mark-to-Mark) which now ship inside Unity 6's bundled TMP are equivalent to what the standalone `com.unity.textmeshpro@3.2.0-pre.15` preview offered. By rendering the same Amiri Arabic test string on the same RTLTMPro variant in both projects, any rendering difference between `tmp-2022/` and `tmp-preview/` isolates the impact of the Editor / bundled-TMP merge.
+The purpose of this project is to **confirm** that the OpenType layout features (Ligatures, Mark-to-Base, Mark-to-Mark) which now ship inside Unity 6's bundled TMP are equivalent to what the standalone `com.unity.textmeshpro@3.2.0-pre.15` preview offered. By rendering the same Amiri Arabic test string on the same RTLTMPro variant in both projects, any rendering difference between `tmp-2022/` and `unity6/` isolates the impact of the Editor / bundled-TMP merge.
 
 ## Stack
 
-| | tmp-2022 (this project) | tmp-preview (companion) |
+| | tmp-2022 (this project) | unity6 (companion) |
 | --- | --- | --- |
 | Unity | **2022.3.21f1** LTS | 6000.3.14f1 |
 | TMP source | `com.unity.textmeshpro@3.2.0-pre.15` (standalone preview) | `com.unity.ugui@2.0.0` (bundled TMP 5.0.0) |
 | RTLTMPro | **MeemAinEdu/RTLTMPro** (pre-merge fork w/ Preserve Shadda, v3.4.5-edit.1) | OmarWKH/RTLTMPro (post-merge, v4.0.0 + Preserve Shadda) |
 | Font | Amiri Regular (SIL OFL) | Amiri Regular (same file) |
-| Test string | `Assets/ArabicTestString.txt` (same as tmp-preview) | same |
+| Test string | `Assets/ArabicTestString.txt` (same as unity6) | same |
 
 The control deliberately uses the MeemAinEdu fork rather than the post-merge OmarWKH fork because Unity 2022.3 predates the upstream v4.0.0 "Fix issues with Unity 6" changes — using a fork dated before that release matches the era of the standalone TMP preview.
 
@@ -21,13 +21,13 @@ The control deliberately uses the MeemAinEdu fork rather than the post-merge Oma
 3. Run **menu → Arabic Study → Run Full Setup**. This generates `Assets/Fonts/Amiri-Regular SDF.asset` (dynamic SDF, 2048², SDFAA, padding 9, multi-atlas), best-effort enables `liga / rlig / mark / mkmk / init / medi / fina / isol / ccmp` on it, and saves `Assets/Scenes/ArabicTest.unity` with a raw `TextMeshProUGUI` and an `RTLTextMeshPro` side by side rendering the test string.
 4. Use **menu → Arabic Study → Font Table Search** to inspect what made it into the Character / Glyph / Ligature / Pair Adjustment / Mark-to-Base / Mark-to-Mark tables on the font asset.
 
-## What to compare against tmp-preview
+## What to compare against unity6
 
 Open the scene in both Editors, screenshot. If the rendering is essentially identical:
 
 - The OpenType layout features in Unity 6's bundled TMP behave the same as the standalone preview that originally introduced them.
 - The decision to drop `builtin-tmp/` was correct — there is no untapped feature gap on Unity 6.
-- Any harakat / ligature rendering issues seen in `tmp-preview/` are inherent to the feature implementation, not to a missing port.
+- Any harakat / ligature rendering issues seen in `unity6/` are inherent to the feature implementation, not to a missing port.
 
 If the rendering differs:
 

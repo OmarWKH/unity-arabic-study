@@ -13,7 +13,7 @@ using UnityEngine.UI;
 
 namespace ArabicStudy.Editor
 {
-    /// One-shot automation for the TMP 3.2.0-pre.15 (preview) project.
+    /// One-shot automation for the Unity 6 project.
     /// Same as the baseline setup, plus a best-effort enable of OpenType layout
     /// features (liga, rlig, mark, mkmk, init, medi, fina, isol, ccmp) — the
     /// features that are the whole point of this comparison.
@@ -23,7 +23,7 @@ namespace ArabicStudy.Editor
         private const string FontAssetPath = "Assets/Fonts/Amiri-Regular SDF.asset";
         private const string TestStringPath = "Assets/ArabicTestString.txt";
         private const string ScenePath = "Assets/Scenes/ArabicTest.unity";
-        private const string ProjectLabel = "[ArabicTestSetup/tmp-preview]";
+        private const string ProjectLabel = "[ArabicTestSetup/unity6]";
 
         private static readonly string[] OpenTypeFeatureTags =
             { "liga", "rlig", "mark", "mkmk", "init", "medi", "fina", "isol", "ccmp" };

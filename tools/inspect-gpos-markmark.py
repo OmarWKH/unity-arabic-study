@@ -19,13 +19,13 @@ Usage:
   python tools/inspect-gpos-markmark.py [font.ttf] [base_cp_hex] [comb_cp_hex]
 
 Defaults:
-  font.ttf      tmp-preview/Assets/Fonts/Amiri-Regular.ttf
+  font.ttf      unity6/Assets/Fonts/Amiri-Regular.ttf
   base_cp_hex   0651  (ARABIC SHADDA)
   comb_cp_hex   064E  (ARABIC FATHA)
 
 Examples:
   python tools/inspect-gpos-markmark.py
-  python tools/inspect-gpos-markmark.py tmp-preview/Assets/Fonts/Amiri-Regular.ttf 0651 064F
+  python tools/inspect-gpos-markmark.py unity6/Assets/Fonts/Amiri-Regular.ttf 0651 064F
   python tools/inspect-gpos-markmark.py other.ttf 0651 064B
 
 Install:
@@ -51,7 +51,7 @@ except ImportError:
     sys.exit(2)
 
 
-DEFAULT_FONT = "tmp-preview/Assets/Fonts/Amiri-Regular.ttf"
+DEFAULT_FONT = "unity6/Assets/Fonts/Amiri-Regular.ttf"
 DEFAULT_BASE_CP = 0x0651  # SHADDA
 DEFAULT_COMB_CP = 0x064E  # FATHA
 

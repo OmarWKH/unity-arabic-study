@@ -24,13 +24,13 @@ Usage:
   python tools/inspect-gsub-ligature.py [font.ttf] [cp1_hex cp2_hex ...]
 
 Defaults:
-  font.ttf   tmp-preview/Assets/Fonts/Amiri-Regular.ttf
+  font.ttf   unity6/Assets/Fonts/Amiri-Regular.ttf
   sequence   0651 064E   (SHADDA + FATHA)
 
 Examples:
   python tools/inspect-gsub-ligature.py
-  python tools/inspect-gsub-ligature.py tmp-preview/Assets/Fonts/Amiri-Regular.ttf 0651 064F
-  python tools/inspect-gsub-ligature.py tmp-preview/Assets/Fonts/Amiri-Regular.ttf 0644 0644 0647
+  python tools/inspect-gsub-ligature.py unity6/Assets/Fonts/Amiri-Regular.ttf 0651 064F
+  python tools/inspect-gsub-ligature.py unity6/Assets/Fonts/Amiri-Regular.ttf 0644 0644 0647
 
 Install:
   pip install fonttools
@@ -55,7 +55,7 @@ except Exception:
     pass
 
 
-DEFAULT_FONT = "tmp-preview/Assets/Fonts/Amiri-Regular.ttf"
+DEFAULT_FONT = "unity6/Assets/Fonts/Amiri-Regular.ttf"
 DEFAULT_SEQUENCE = [0x0651, 0x064E]  # SHADDA, FATHA
 
 

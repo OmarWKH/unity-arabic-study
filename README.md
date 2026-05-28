@@ -16,7 +16,7 @@ The study now uses **one Unity 6.3 project** with the bundled TMP, and investiga
 
 ## Project
 
-`tmp-preview/` (name kept for now; will be renamed later) — Unity `6000.3.14f1`, bundled TMP via `com.unity.ugui` 2.0.0, with:
+`unity6/` (name kept for now; will be renamed later) — Unity `6000.3.14f1`, bundled TMP via `com.unity.ugui` 2.0.0, with:
 
 - **Amiri Regular** (SIL OFL) as the test font, committed at `Assets/Fonts/Amiri-Regular.ttf`.
 - **RTLTMPro** from the OmarWKH fork (`https://github.com/OmarWKH/RTLTMPro.git?path=/UPMPackage`), which adds a `Preserve Shadda` option on top of the upstream v4.0.0 — relevant because the shadda is the diacritic most likely to expose Mark-to-Mark behaviour.
@@ -25,7 +25,7 @@ The study now uses **one Unity 6.3 project** with the bundled TMP, and investiga
 
 ## Test string
 
-`tmp-preview/Assets/ArabicTestString.txt` includes:
+`unity6/Assets/ArabicTestString.txt` includes:
 
 - Plain Arabic words
 - Words with full harakat (fatha, kasra, damma, sukun, shadda, tanwin)
@@ -34,12 +34,12 @@ The study now uses **one Unity 6.3 project** with the bundled TMP, and investiga
 
 ## First-open workflow
 
-1. Open `tmp-preview/` in Unity Hub. Package Manager resolves UGUI (bundled), RTLTMPro (from the OmarWKH fork).
+1. Open `unity6/` in Unity Hub. Package Manager resolves UGUI (bundled), RTLTMPro (from the OmarWKH fork).
 2. Accept the TMP Essentials import when prompted.
 3. Run **menu → Arabic Study → Run Full Setup**. This generates the SDF font asset and `Assets/Scenes/ArabicTest.unity`, ready for Play mode.
 4. To inspect what made it into the font asset's tables, use **menu → Arabic Study → Font Table Search**.
 
-See `tmp-preview/SETUP.md` for details and the OpenType-feature notes.
+See `unity6/SETUP.md` for details and the OpenType-feature notes.
 
 ## License notes
 

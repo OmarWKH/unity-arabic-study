@@ -6,7 +6,7 @@
 
 # ---- Google Fonts -----------------------------------------------------------
 
-# Already downloaded into tmp-preview/Assets/Fonts (kept here for completeness,
+# Already downloaded into unity6/Assets/Fonts (kept here for completeness,
 # the fetcher will skip if file already exists):
 Amiri-Regular.ttf               https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf
 AmiriQuran-Regular.ttf          https://github.com/google/fonts/raw/main/ofl/amiriquran/AmiriQuran-Regular.ttf

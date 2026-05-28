@@ -23,12 +23,12 @@ Usage:
   python tools/shape-with-harfbuzz.py [font.ttf] [cp_hex cp_hex ...]
 
 Defaults (runs all three test sequences when called with no args):
-  font.ttf   tmp-preview/Assets/Fonts/Amiri-Regular.ttf
+  font.ttf   unity6/Assets/Fonts/Amiri-Regular.ttf
   sequences  base+shadda+fatha   /   base+fatha+shadda   /   shadda+fatha alone
 
 When you supply codepoints explicitly, only that sequence is shaped:
-  python tools/shape-with-harfbuzz.py tmp-preview/Assets/Fonts/Amiri-Regular.ttf 0628 0651 064E
-  python tools/shape-with-harfbuzz.py tmp-preview/Assets/Fonts/Amiri-Regular.ttf 0628 064E 0651
+  python tools/shape-with-harfbuzz.py unity6/Assets/Fonts/Amiri-Regular.ttf 0628 0651 064E
+  python tools/shape-with-harfbuzz.py unity6/Assets/Fonts/Amiri-Regular.ttf 0628 064E 0651
 
 Install:
   pip install uharfbuzz fonttools
@@ -57,7 +57,7 @@ except Exception:
     pass
 
 
-DEFAULT_FONT = "tmp-preview/Assets/Fonts/Amiri-Regular.ttf"
+DEFAULT_FONT = "unity6/Assets/Fonts/Amiri-Regular.ttf"
 
 # Default test set when called with no codepoint args.
 DEFAULT_SEQUENCES: list[tuple[str, list[int]]] = [
