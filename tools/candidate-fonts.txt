@@ -1,0 +1,80 @@
+# Curated list of candidate Arabic fonts to evaluate. Each line is:
+#   <local_filename>  <download_url>
+# Lines starting with # are comments. Blank lines skipped.
+# Sources: Google Fonts (github.com/google/fonts mirror), aliftype (Khaled
+# Hosny / Amiri author), rastikerdar (Persian), KACST (KFGQPC).
+
+# ---- Google Fonts -----------------------------------------------------------
+
+# Already downloaded into tmp-preview/Assets/Fonts (kept here for completeness,
+# the fetcher will skip if file already exists):
+Amiri-Regular.ttf               https://github.com/google/fonts/raw/main/ofl/amiri/Amiri-Regular.ttf
+AmiriQuran-Regular.ttf          https://github.com/google/fonts/raw/main/ofl/amiriquran/AmiriQuran-Regular.ttf
+NotoNaskhArabic-Variable.ttf    https://github.com/google/fonts/raw/main/ofl/notonaskharabic/NotoNaskhArabic%5Bwght%5D.ttf
+NotoSansArabic-Variable.ttf     https://github.com/google/fonts/raw/main/ofl/notosansarabic/NotoSansArabic%5Bwdth%2Cwght%5D.ttf
+NotoKufiArabic-Variable.ttf     https://github.com/google/fonts/raw/main/ofl/notokufiarabic/NotoKufiArabic%5Bwght%5D.ttf
+IBMPlexSansArabic-Regular.ttf   https://github.com/google/fonts/raw/main/ofl/ibmplexsansarabic/IBMPlexSansArabic-Regular.ttf
+Cairo-Variable.ttf              https://github.com/google/fonts/raw/main/ofl/cairo/Cairo%5Bslnt%2Cwght%5D.ttf
+Tajawal-Regular.ttf             https://github.com/google/fonts/raw/main/ofl/tajawal/Tajawal-Regular.ttf
+Almarai-Regular.ttf             https://github.com/google/fonts/raw/main/ofl/almarai/Almarai-Regular.ttf
+ReemKufi-Variable.ttf           https://github.com/google/fonts/raw/main/ofl/reemkufi/ReemKufi%5Bwght%5D.ttf
+ScheherazadeNew-Regular.ttf     https://github.com/google/fonts/raw/main/ofl/scheherazadenew/ScheherazadeNew-Regular.ttf
+MarkaziText-Variable.ttf        https://github.com/google/fonts/raw/main/ofl/markazitext/MarkaziText%5Bwght%5D.ttf
+Lateef-Regular.ttf              https://github.com/google/fonts/raw/main/ofl/lateef/Lateef-Regular.ttf
+BalooBhaijaan2-Variable.ttf     https://github.com/google/fonts/raw/main/ofl/baloobhaijaan2/BalooBhaijaan2%5Bwght%5D.ttf
+ReadexPro-Variable.ttf          https://github.com/google/fonts/raw/main/ofl/readexpro/ReadexPro%5BHEXP%2Cwght%5D.ttf
+Rubik-Variable.ttf              https://github.com/google/fonts/raw/main/ofl/rubik/Rubik%5Bwght%5D.ttf
+Changa-Variable.ttf             https://github.com/google/fonts/raw/main/ofl/changa/Changa%5Bwght%5D.ttf
+Lemonada-Variable.ttf           https://github.com/google/fonts/raw/main/ofl/lemonada/Lemonada%5Bwght%5D.ttf
+Vibes-Regular.ttf               https://github.com/google/fonts/raw/main/ofl/vibes/Vibes-Regular.ttf
+
+# Additional Google Fonts candidates:
+ArefRuqaa-Regular.ttf           https://github.com/google/fonts/raw/main/ofl/arefruqaa/ArefRuqaa-Regular.ttf
+ArefRuqaaInk-Regular.ttf        https://github.com/google/fonts/raw/main/ofl/arefruqaaink/ArefRuqaaInk-Regular.ttf
+Mirza-Regular.ttf               https://github.com/google/fonts/raw/main/ofl/mirza/Mirza-Regular.ttf
+ElMessiri-Variable.ttf          https://github.com/google/fonts/raw/main/ofl/elmessiri/ElMessiri%5Bwght%5D.ttf
+Mada-Regular.ttf                https://github.com/google/fonts/raw/main/ofl/mada/Mada%5Bwght%5D.ttf
+Jomhuria-Regular.ttf            https://github.com/google/fonts/raw/main/ofl/jomhuria/Jomhuria-Regular.ttf
+Lalezar-Regular.ttf             https://github.com/google/fonts/raw/main/ofl/lalezar/Lalezar-Regular.ttf
+Harmattan-Regular.ttf           https://github.com/google/fonts/raw/main/ofl/harmattan/Harmattan-Regular.ttf
+Gulzar-Regular.ttf              https://github.com/google/fonts/raw/main/ofl/gulzar/Gulzar-Regular.ttf
+Estedad-Variable.ttf            https://github.com/google/fonts/raw/main/ofl/estedad/Estedad%5Bwght%5D.ttf
+Kufam-Variable.ttf              https://github.com/google/fonts/raw/main/ofl/kufam/Kufam%5Bwght%5D.ttf
+Qahiri-Regular.ttf              https://github.com/google/fonts/raw/main/ofl/qahiri/Qahiri-Regular.ttf
+ScheherazadeNewVariable.ttf     https://github.com/google/fonts/raw/main/ofl/scheherazadenew/ScheherazadeNew-Bold.ttf
+NotoNastaliqUrdu-Variable.ttf   https://github.com/google/fonts/raw/main/ofl/notonastaliqurdu/NotoNastaliqUrdu%5Bwght%5D.ttf
+# Removed: ReemKufi-Aliftype.ttf, Raqq-Regular.ttf (couldn't resolve the
+# actual repo paths after several probes). Reem Kufi is already covered via
+# the google/fonts mirror above.
+# Removed: NotoSerifArabic — that family doesn't exist in the Noto Arabic
+# release (Noto has Sans/Naskh/Kufi/Nastaliq for Arabic, no Serif).
+# Removed: MehrNastaliq — couldn't find the right path on google/fonts.
+
+# ---- rastikerdar (Persian) --------------------------------------------------
+
+Vazirmatn-Regular.ttf           https://github.com/rastikerdar/vazirmatn/raw/master/fonts/ttf/Vazirmatn-Regular.ttf
+Vazirmatn-Variable.ttf          https://github.com/rastikerdar/vazirmatn/raw/master/fonts/variable/Vazirmatn%5Bwght%5D.ttf
+Sahel-Regular.ttf               https://github.com/rastikerdar/sahel-font/raw/master/dist/Sahel.ttf
+Shabnam-Regular.ttf             https://github.com/rastikerdar/shabnam-font/raw/master/dist/Shabnam.ttf
+
+# ---- Government / corporate fonts ------------------------------------------
+
+# Dubai Font, commissioned by the Government of Dubai. Free for personal use,
+# commercial use requires a license — included here for evaluation only.
+# Mirror via rtaibah's CDN repo since dubaifont.com doesn't expose clean URLs.
+Dubai-Regular.ttf               https://github.com/rtaibah/dubai-font-cdn/raw/master/fonts/Dubai-Regular.ttf
+Dubai-Light.ttf                 https://github.com/rtaibah/dubai-font-cdn/raw/master/fonts/Dubai-Light.ttf
+Dubai-Medium.ttf                https://github.com/rtaibah/dubai-font-cdn/raw/master/fonts/Dubai-Medium.ttf
+Dubai-Bold.ttf                  https://github.com/rtaibah/dubai-font-cdn/raw/master/fonts/Dubai-Bold.ttf
+
+# Thmanyah Sans — Saudi typeface from Thmanyah LLC, used in their media
+# products. The official Thmanyah-LLC/ThmanyahFont repo serves it as a
+# Swift Package; binary access here is via a community mirror.
+ThmanyahSans-Regular.otf        https://github.com/qaiserwh/thmanyah-font/raw/main/thmanyahsans-Regular.otf
+
+# Not added (require manual procurement from government / publisher sites,
+# no clean github raw URLs available):
+#   - Saudi Ministry of Culture "Year of Arabic Calligraphy" fonts
+#   - Other GCC government typefaces (UAE, Qatar, Kuwait, Oman ministries)
+#   - Al Jazeera Arabic (proprietary, restricted distribution)
+#   - Hacen, Adobe Arabic (proprietary)

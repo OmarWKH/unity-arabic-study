@@ -71,3 +71,7 @@ crashlytics-build.properties
 # OS junk
 .DS_Store
 Thumbs.db
+font-cache/
+
+# Python virtualenv for the tools/ scripts (fontTools, uharfbuzz)
+.venv/
