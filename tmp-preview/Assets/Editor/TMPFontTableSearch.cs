@@ -4,7 +4,6 @@ using System.Globalization;
 using TMPro;
 using UnityEditor;
 using UnityEngine;
-using UnityEngine.TextCore.LowLevel;
 
 namespace ArabicStudy.Editor
 {
@@ -77,19 +76,6 @@ namespace ArabicStudy.Editor
             public float combOx, combOy;
         }
 
-        // ---------- ranges ----------
-
-        private static readonly (uint start, uint end, string label)[] ReverseMapRanges =
-        {
-            (0x0020, 0x007E, "ASCII"),
-            (0x00A0, 0x00FF, "Latin-1 Supp"),
-            (0x0600, 0x06FF, "Arabic"),
-            (0x0750, 0x077F, "Arabic Supplement"),
-            (0x08A0, 0x08FF, "Arabic Extended-A"),
-            (0xFB50, 0xFDFF, "Arabic Presentation Forms-A"),
-            (0xFE70, 0xFEFF, "Arabic Presentation Forms-B"),
-        };
-
         // ---------- state ----------
 
         private TMP_FontAsset _fontAsset;
@@ -121,15 +107,9 @@ namespace ArabicStudy.Editor
         private bool _filterActive;
         private string _filterNote = "";
 
-        // Visual chip rendering.
+        // Visual chip rendering and font-asset views.
         private float _chipSize = 56f;
-        private Dictionary<uint, UnityEngine.TextCore.Glyph> _glyphLookup;
-        private TMP_FontAsset _cachedGlyphLookupFont;
-
-        // Reverse map cache.
-        private TMP_FontAsset _cachedMapFont;
-        private Dictionary<uint, List<uint>> _gidToCps;
-        private string _mapBuildNote = "";
+        private readonly TMPFontAssetView _view = new();
 
         // GUIStyle that uses a label font with reasonable Unicode coverage.
         private GUIStyle _rowStyle;
@@ -141,6 +121,23 @@ namespace ArabicStudy.Editor
         {
             var win = GetWindow<TMPFontTableSearch>("TMP Font Table Search");
             win.minSize = new Vector2(640, 480);
+        }
+
+        /// Cross-window entry point: opens or focuses the search window with the
+        /// given font asset and codepoint pre-loaded as the query, runs the
+        /// search, and shows the result. Used by the RTLTMPro Debugger to let
+        /// you click through to "what feature entries apply to this codepoint?".
+        public static void OpenWith(TMP_FontAsset fontAsset, uint codepoint)
+        {
+            var win = GetWindow<TMPFontTableSearch>("TMP Font Table Search");
+            win.minSize = new Vector2(640, 480);
+            if (fontAsset != null) win._fontAsset = fontAsset;
+            win._view.FontAsset = win._fontAsset;
+            win._query = $"U+{codepoint:X4}";
+            win._mode = QueryMode.Codepoint;
+            win.RunSearch();
+            win.Focus();
+            win.Repaint();
         }
 
         private void OnGUI()
@@ -219,8 +216,9 @@ namespace ArabicStudy.Editor
             {
                 _fontAsset = (TMP_FontAsset)EditorGUILayout.ObjectField(
                     "Font Asset", _fontAsset, typeof(TMP_FontAsset), false);
-                if (c.changed) { InvalidateReverseMap(); _glyphLookup = null; _cachedGlyphLookupFont = null; }
+                if (c.changed) _view.FontAsset = _fontAsset;
             }
+            if (_view.FontAsset != _fontAsset) _view.FontAsset = _fontAsset;
 
             using (new EditorGUILayout.HorizontalScope())
             {
@@ -234,7 +232,7 @@ namespace ArabicStudy.Editor
                     "Interpret bare digits as decimal (default: hex codepoint)",
                     _decimal);
                 if (GUILayout.Button("Search", GUILayout.Width(80))) RunSearch();
-                if (GUILayout.Button("Rebuild Map", GUILayout.Width(110))) { InvalidateReverseMap(); EnsureReverseMap(); }
+                if (GUILayout.Button("Rebuild Map", GUILayout.Width(110))) { _view.InvalidateReverseMap(); _view.EnsureReverseMap(); }
             }
 
             using (new EditorGUILayout.HorizontalScope())
@@ -254,7 +252,7 @@ namespace ArabicStudy.Editor
             ResolveFilter();
             if (_filterActive)
                 EditorGUILayout.HelpBox(
-                    $"filtering by  '{Cp(_filterCp)}'  U+{_filterCp:X4}{(string.IsNullOrEmpty(UnicodeName(_filterCp)) ? "" : "  " + UnicodeName(_filterCp))}  (glyph {_filterGid})",
+                    $"filtering by  '{TMPFontAssetView.CodepointAsString(_filterCp)}'  U+{_filterCp:X4}{(string.IsNullOrEmpty(ArabicNames.UnicodeName(_filterCp)) ? "" : "  " + ArabicNames.UnicodeName(_filterCp))}  (glyph {_filterGid})",
                     MessageType.Info);
             else if (!string.IsNullOrEmpty(_filter) && !string.IsNullOrEmpty(_filterNote))
                 EditorGUILayout.HelpBox($"filter not applied: {_filterNote}", MessageType.Warning);
@@ -276,17 +274,17 @@ namespace ArabicStudy.Editor
 
                 using (new EditorGUILayout.HorizontalScope())
                 {
-                    if (_resolvedGid != 0) DrawGlyphChip(_resolvedGid, Mathf.Max(_chipSize, 64f));
+                    if (_resolvedGid != 0) _view.DrawGlyphChip(_resolvedGid, Mathf.Max(_chipSize, 64f));
                     using (new EditorGUILayout.VerticalScope())
                     {
                         EditorGUILayout.LabelField(
-                            $"codepoint  {(_resolvedCp != 0 ? $"U+{_resolvedCp:X4}  '{Cp(_resolvedCp)}'" : "—")}",
+                            $"codepoint  {(_resolvedCp != 0 ? $"U+{_resolvedCp:X4}  '{TMPFontAssetView.CodepointAsString(_resolvedCp)}'" : "—")}",
                             _rowStyle);
                         EditorGUILayout.LabelField(
                             $"glyph ID   {(_resolvedGid != 0 ? _resolvedGid.ToString() : "—")}",
                             _rowStyle);
-                        if (!string.IsNullOrEmpty(_mapBuildNote))
-                            EditorGUILayout.LabelField(_mapBuildNote, EditorStyles.miniLabel);
+                        if (!string.IsNullOrEmpty(_view.MapBuildNote))
+                            EditorGUILayout.LabelField(_view.MapBuildNote, EditorStyles.miniLabel);
                     }
                     GUILayout.FlexibleSpace();
                 }
@@ -295,89 +293,17 @@ namespace ArabicStudy.Editor
 
         // ---------- chip rendering ----------
 
-        private void EnsureGlyphLookup()
-        {
-            if (_fontAsset == null) { _glyphLookup = null; _cachedGlyphLookupFont = null; return; }
-            if (_glyphLookup != null && _cachedGlyphLookupFont == _fontAsset) return;
-            _glyphLookup = new Dictionary<uint, UnityEngine.TextCore.Glyph>(_fontAsset.glyphTable.Count);
-            foreach (var g in _fontAsset.glyphTable) _glyphLookup[g.index] = g;
-            _cachedGlyphLookupFont = _fontAsset;
-        }
-
-        /// Render a single glyph as a visual chip: a `size × size` square containing
-        /// the glyph blitted from the font asset's atlas, plus a tiny caption line
-        /// below it with the codepoint(s) and glyph ID.
-        private void DrawGlyphChip(uint gid, float size)
-        {
-            EnsureGlyphLookup();
-            var captionH = 30f;
-            using (new EditorGUILayout.VerticalScope(GUILayout.Width(size)))
-            {
-                var rect = GUILayoutUtility.GetRect(size, size, GUILayout.Width(size), GUILayout.Height(size));
-                EditorGUI.DrawRect(rect, new Color(0.13f, 0.13f, 0.13f));
-
-                bool drawn = false;
-                if (_glyphLookup != null && _glyphLookup.TryGetValue(gid, out var glyph)
-                    && _fontAsset.atlasTextures != null
-                    && glyph.atlasIndex >= 0 && glyph.atlasIndex < _fontAsset.atlasTextures.Length)
-                {
-                    var atlas = _fontAsset.atlasTextures[glyph.atlasIndex];
-                    if (atlas != null)
-                    {
-                        var gr = glyph.glyphRect;
-                        float aw = atlas.width, ah = atlas.height;
-                        if (aw > 0 && ah > 0 && gr.width > 0 && gr.height > 0)
-                        {
-                            // Fit glyph into chip preserving aspect ratio.
-                            float pad = 4f;
-                            float box = size - pad * 2f;
-                            float gw = gr.width, gh = gr.height;
-                            float scale = Mathf.Min(box / gw, box / gh);
-                            float dw = gw * scale, dh = gh * scale;
-                            var inner = new Rect(rect.x + (size - dw) * 0.5f, rect.y + (size - dh) * 0.5f, dw, dh);
-                            var uv = new Rect(gr.x / aw, gr.y / ah, gr.width / aw, gr.height / ah);
-                            GUI.DrawTextureWithTexCoords(inner, atlas, uv, true);
-                            drawn = true;
-                        }
-                    }
-                }
-                if (!drawn)
-                {
-                    // Fallback: show the glyph ID as a number, since the Editor IMGUI
-                    // font often lacks Arabic coverage and would render as tofu.
-                    var fallbackStyle = new GUIStyle(EditorStyles.boldLabel)
-                    {
-                        alignment = TextAnchor.MiddleCenter,
-                        fontSize = Mathf.Max(10, (int)(size * 0.28f)),
-                        normal = { textColor = new Color(0.85f, 0.55f, 0.55f) },
-                    };
-                    GUI.Label(rect, gid == 0 ? ".notdef" : $"g{gid}\n(not in atlas)", fallbackStyle);
-                }
-
-                // Caption below: codepoint(s) + glyph id.
-                string cap;
-                if (_gidToCps != null && _gidToCps.TryGetValue(gid, out var caps) && caps.Count > 0)
-                {
-                    cap = caps.Count == 1 ? $"U+{caps[0]:X4}" : $"U+{caps[0]:X4} +{caps.Count - 1}";
-                }
-                else cap = "(no cp)";
-                var capRect = GUILayoutUtility.GetRect(size, captionH, GUILayout.Width(size), GUILayout.Height(captionH));
-                var capStyle = new GUIStyle(EditorStyles.miniLabel) { alignment = TextAnchor.UpperCenter, wordWrap = false };
-                GUI.Label(capRect, $"{cap}\ng{gid}", capStyle);
-            }
-        }
-
         private void DrawGlyphChipPair(uint a, uint b, float size, string separator = " + ")
         {
             using (new EditorGUILayout.HorizontalScope())
             {
-                DrawGlyphChip(a, size);
+                _view.DrawGlyphChip(a, size);
                 using (new EditorGUILayout.VerticalScope(GUILayout.Width(20)))
                 {
                     GUILayout.Space(size * 0.5f - 8f);
                     EditorGUILayout.LabelField(separator, GUILayout.Width(20));
                 }
-                DrawGlyphChip(b, size);
+                _view.DrawGlyphChip(b, size);
                 GUILayout.FlexibleSpace();
             }
         }
@@ -388,12 +314,12 @@ namespace ArabicStudy.Editor
         {
             using (new EditorGUILayout.HorizontalScope())
             {
-                DrawGlyphChip(h.glyphIndex, _chipSize);
+                _view.DrawGlyphChip(h.glyphIndex, _chipSize);
                 using (new EditorGUILayout.VerticalScope())
                 {
-                    var name = UnicodeName(h.unicode);
+                    var name = ArabicNames.UnicodeName(h.unicode);
                     EditorGUILayout.LabelField(
-                        $"'{Cp(h.unicode)}' U+{h.unicode:X4}{(string.IsNullOrEmpty(name) ? "" : "  " + name)}",
+                        $"'{TMPFontAssetView.CodepointAsString(h.unicode)}' U+{h.unicode:X4}{(string.IsNullOrEmpty(name) ? "" : "  " + name)}",
                         _rowStyle);
                     EditorGUILayout.LabelField($"→ glyph {h.glyphIndex}    scale = {h.scale}", EditorStyles.miniLabel);
                 }
@@ -406,7 +332,7 @@ namespace ArabicStudy.Editor
         {
             using (new EditorGUILayout.HorizontalScope())
             {
-                DrawGlyphChip(h.index, _chipSize);
+                _view.DrawGlyphChip(h.index, _chipSize);
                 using (new EditorGUILayout.VerticalScope())
                 {
                     EditorGUILayout.LabelField($"glyph {h.index}  atlas#{h.atlasIndex}  scale={h.scale}", _rowStyle);
@@ -429,9 +355,9 @@ namespace ArabicStudy.Editor
                     for (int i = 0; i < h.componentGlyphIDs.Length; i++)
                     {
                         if (i > 0) compLine.Append("  +  ");
-                        compLine.Append(GlyphLabel(h.componentGlyphIDs[i]));
+                        compLine.Append(_view.GlyphLabel(h.componentGlyphIDs[i]));
                     }
-                EditorGUILayout.LabelField($"[{h.role}]   {compLine}   →   {GlyphLabel(h.ligatureGlyphID)}", _rowStyle);
+                EditorGUILayout.LabelField($"[{h.role}]   {compLine}   →   {_view.GlyphLabel(h.ligatureGlyphID)}", _rowStyle);
                 using (new EditorGUILayout.HorizontalScope())
                 {
                     if (h.componentGlyphIDs != null)
@@ -446,7 +372,7 @@ namespace ArabicStudy.Editor
                                     EditorGUILayout.LabelField("+", GUILayout.Width(14));
                                 }
                             }
-                            DrawGlyphChip(h.componentGlyphIDs[i], _chipSize);
+                            _view.DrawGlyphChip(h.componentGlyphIDs[i], _chipSize);
                         }
                     }
                     using (new EditorGUILayout.VerticalScope(GUILayout.Width(28)))
@@ -454,7 +380,7 @@ namespace ArabicStudy.Editor
                         GUILayout.Space(_chipSize * 0.5f - 8f);
                         EditorGUILayout.LabelField("→", GUILayout.Width(28));
                     }
-                    DrawGlyphChip(h.ligatureGlyphID, _chipSize);
+                    _view.DrawGlyphChip(h.ligatureGlyphID, _chipSize);
                     GUILayout.FlexibleSpace();
                 }
             }
@@ -466,7 +392,7 @@ namespace ArabicStudy.Editor
             using (new EditorGUILayout.VerticalScope())
             {
                 EditorGUILayout.LabelField(
-                    $"[{h.role}]   {GlyphLabel(h.firstGlyph)}   ·   {GlyphLabel(h.secondGlyph)}", _rowStyle);
+                    $"[{h.role}]   {_view.GlyphLabel(h.firstGlyph)}   ·   {_view.GlyphLabel(h.secondGlyph)}", _rowStyle);
                 DrawGlyphChipPair(h.firstGlyph, h.secondGlyph, _chipSize, " · ");
                 EditorGUILayout.LabelField(
                     $"first   xPlc={h.fxPlc}  yPlc={h.fyPlc}  xAdv={h.fxAdv}  yAdv={h.fyAdv}",
@@ -483,7 +409,7 @@ namespace ArabicStudy.Editor
             using (new EditorGUILayout.VerticalScope())
             {
                 EditorGUILayout.LabelField(
-                    $"[{h.role}]   base={GlyphLabel(h.baseGlyph)}   mark={GlyphLabel(h.markGlyph)}", _rowStyle);
+                    $"[{h.role}]   base={_view.GlyphLabel(h.baseGlyph)}   mark={_view.GlyphLabel(h.markGlyph)}", _rowStyle);
                 DrawGlyphChipPair(h.baseGlyph, h.markGlyph, _chipSize);
                 EditorGUILayout.LabelField(
                     $"baseAnchor x={h.baseAx} y={h.baseAy}    markOffset x={h.markOx} y={h.markOy}",
@@ -497,7 +423,7 @@ namespace ArabicStudy.Editor
             using (new EditorGUILayout.VerticalScope())
             {
                 EditorGUILayout.LabelField(
-                    $"[{h.role}]   baseMark={GlyphLabel(h.baseGlyph)}   combining={GlyphLabel(h.combiningGlyph)}", _rowStyle);
+                    $"[{h.role}]   baseMark={_view.GlyphLabel(h.baseGlyph)}   combining={_view.GlyphLabel(h.combiningGlyph)}", _rowStyle);
                 DrawGlyphChipPair(h.baseGlyph, h.combiningGlyph, _chipSize);
                 EditorGUILayout.LabelField(
                     $"baseAnchor x={h.baseAx} y={h.baseAy}    combOffset x={h.combOx} y={h.combOy}",
@@ -522,47 +448,26 @@ namespace ArabicStudy.Editor
             if (!TryResolveQuery(out _resolvedCp, out _resolvedGid, out _resolveNote))
             { _hasResult = true; return; }
 
-            EnsureReverseMap();
-            PopulateAtlasForCodepoint(_resolvedCp); // make sure the queried glyph itself is in the atlas
+            _view.EnsureReverseMap();
+            _view.PopulateAtlasForCodepoint(_resolvedCp); // make sure the queried glyph itself is in the atlas
 
-
-            // Bidirectional resolve: codepoint ↔ glyph id
+            // Bidirectional resolve: codepoint ↔ glyph id (via the view's lookups).
             if (_resolvedGid == 0 && _resolvedCp != 0)
+                _resolvedGid = _view.GlyphForCodepoint(_resolvedCp);
+            if (_resolvedCp == 0 && _resolvedGid != 0)
             {
-                foreach (var c in _fontAsset.characterTable)
-                    if (c.unicode == _resolvedCp) { _resolvedGid = c.glyphIndex; break; }
-                if (_resolvedGid == 0 && _gidToCps != null)
-                    foreach (var kv in _gidToCps)
-                        if (kv.Value.Contains(_resolvedCp)) { _resolvedGid = kv.Key; break; }
+                var cps = _view.CodepointsForGlyph(_resolvedGid);
+                if (cps.Count > 0) _resolvedCp = cps[0];
             }
-            if (_resolvedCp == 0 && _resolvedGid != 0 && _gidToCps != null
-                && _gidToCps.TryGetValue(_resolvedGid, out var cps) && cps.Count > 0)
-                _resolvedCp = cps[0];
 
             CollectHits();
             PopulateAtlasForHits();
             _hasResult = true;
         }
 
-        /// Ensure the resolved codepoint is rendered into the dynamic atlas so its chip
-        /// doesn't come up blank when the glyph hasn't been seen by any text component yet.
-        private void PopulateAtlasForCodepoint(uint cp)
-        {
-            if (cp == 0 || _fontAsset == null) return;
-            try
-            {
-                _fontAsset.TryAddCharacters(new[] { cp }, out _);
-                _glyphLookup = null; // force rebuild on next chip draw
-                EditorUtility.SetDirty(_fontAsset);
-            }
-            catch { /* best-effort */ }
-        }
-
         /// Walk every collected hit, gather glyph IDs referenced, map them back to a
         /// representative codepoint via the reverse map, and ask the font asset to
-        /// materialise them in the atlas. Without this step, GPOS records pointing at
-        /// shaped (presentation form) glyphs render as black squares because the
-        /// dynamic atlas has never been asked to render those glyphs.
+        /// materialise them in the atlas so chips actually render.
         private void PopulateAtlasForHits()
         {
             if (_fontAsset == null) return;
@@ -570,8 +475,7 @@ namespace ArabicStudy.Editor
             void AddGid(uint gid)
             {
                 if (gid == 0) return;
-                if (_gidToCps != null && _gidToCps.TryGetValue(gid, out var cps))
-                    foreach (var cp in cps) wanted.Add(cp);
+                foreach (var cp in _view.CodepointsForGlyph(gid)) wanted.Add(cp);
             }
 
             foreach (var h in _charHits) wanted.Add(h.unicode);
@@ -585,17 +489,7 @@ namespace ArabicStudy.Editor
             foreach (var h in _m2bHits) { AddGid(h.baseGlyph); AddGid(h.markGlyph); }
             foreach (var h in _m2mHits) { AddGid(h.baseGlyph); AddGid(h.combiningGlyph); }
 
-            if (wanted.Count == 0) return;
-
-            var arr = new uint[wanted.Count];
-            int i = 0; foreach (var cp in wanted) arr[i++] = cp;
-            try
-            {
-                _fontAsset.TryAddCharacters(arr, out _);
-                _glyphLookup = null;
-                EditorUtility.SetDirty(_fontAsset);
-            }
-            catch { /* best-effort */ }
+            _view.PopulateAtlasForCodepoints(wanted);
         }
 
         private bool TryResolveQuery(out uint codepoint, out uint glyphId, out string note)
@@ -615,16 +509,12 @@ namespace ArabicStudy.Editor
                 return;
 
             if (_filterGid == 0 && _filterCp != 0)
+                _filterGid = _view.GlyphForCodepoint(_filterCp);
+            if (_filterCp == 0 && _filterGid != 0)
             {
-                foreach (var c in _fontAsset.characterTable)
-                    if (c.unicode == _filterCp) { _filterGid = c.glyphIndex; break; }
-                if (_filterGid == 0 && _gidToCps != null)
-                    foreach (var kv in _gidToCps)
-                        if (kv.Value.Contains(_filterCp)) { _filterGid = kv.Key; break; }
+                var fcps = _view.CodepointsForGlyph(_filterGid);
+                if (fcps.Count > 0) _filterCp = fcps[0];
             }
-            if (_filterCp == 0 && _filterGid != 0 && _gidToCps != null
-                && _gidToCps.TryGetValue(_filterGid, out var fcps) && fcps.Count > 0)
-                _filterCp = fcps[0];
 
             if (_filterGid != 0 || _filterCp != 0) _filterActive = true;
             else _filterNote = "filter did not resolve to a known glyph";
@@ -829,192 +719,8 @@ namespace ArabicStudy.Editor
             }
         }
 
-        // ---------- reverse map (FontEngine) ----------
-
-        private void InvalidateReverseMap()
-        {
-            _cachedMapFont = null;
-            _gidToCps = null;
-            _mapBuildNote = "";
-        }
-
-        private void EnsureReverseMap()
-        {
-            if (_fontAsset == null) return;
-            if (_cachedMapFont == _fontAsset && _gidToCps != null) return;
-
-            _gidToCps = new Dictionary<uint, List<uint>>(2048);
-
-            // Seed from the character table first (cheap, always available).
-            foreach (var c in _fontAsset.characterTable)
-                Add(_gidToCps, c.glyphIndex, c.unicode);
-
-            // Augment with FontEngine cmap queries across Arabic ranges. This is what
-            // lets us reverse-resolve shaped (presentation form) glyph IDs that the
-            // character table doesn't contain.
-            int extra = 0;
-            string fontEngineNote = "";
-            var srcFont = _fontAsset.sourceFontFile;
-            if (srcFont == null)
-            {
-                fontEngineNote = "source font file not assigned — reverse map limited to character table";
-            }
-            else
-            {
-                FontEngineError err;
-                try { err = FontEngine.LoadFontFace(srcFont); }
-                catch (Exception ex) { err = FontEngineError.Invalid_Face; fontEngineNote = ex.Message; }
-
-                if (err != FontEngineError.Success)
-                {
-                    if (string.IsNullOrEmpty(fontEngineNote))
-                        fontEngineNote = $"FontEngine.LoadFontFace failed: {err}";
-                }
-                else
-                {
-                    foreach (var (start, end, _) in ReverseMapRanges)
-                    {
-                        for (uint cp = start; cp <= end; cp++)
-                        {
-                            uint gid = 0;
-                            try { FontEngine.TryGetGlyphIndex(cp, out gid); }
-                            catch { gid = 0; }
-                            if (gid == 0) continue;
-                            if (Add(_gidToCps, gid, cp)) extra++;
-                        }
-                    }
-                }
-            }
-
-            _cachedMapFont = _fontAsset;
-            _mapBuildNote = string.IsNullOrEmpty(fontEngineNote)
-                ? $"reverse map: {_gidToCps.Count} glyph IDs   (+{extra} added via FontEngine)"
-                : $"reverse map: {_gidToCps.Count} glyph IDs   (FontEngine: {fontEngineNote})";
-        }
-
-        private static bool Add(Dictionary<uint, List<uint>> map, uint gid, uint cp)
-        {
-            if (!map.TryGetValue(gid, out var list))
-            { list = new List<uint>(1); map[gid] = list; }
-            if (list.Contains(cp)) return false;
-            list.Add(cp);
-            return true;
-        }
-
-        // ---------- formatting helpers ----------
-
-        private static string Cp(uint cp)
-        {
-            try { return char.ConvertFromUtf32((int)cp); }
-            catch { return "?"; }
-        }
-
-        /// Rich label for a glyph ID, used in labels alongside chips:
-        ///   "'ﺑ' U+FE91 ARABIC LETTER BEH INITIAL FORM (glyph 1556)"
-        /// Falls back to "glyph N" when there's no reverse codepoint mapping.
-        private string GlyphLabel(uint gid)
-        {
-            if (gid == 0) return ".notdef (glyph 0)";
-            if (_gidToCps != null && _gidToCps.TryGetValue(gid, out var cps) && cps.Count > 0)
-            {
-                var primary = cps[0];
-                var s = new System.Text.StringBuilder();
-                s.Append($"'{Cp(primary)}' U+{primary:X4}");
-                var name = UnicodeName(primary);
-                if (!string.IsNullOrEmpty(name)) s.Append(' ').Append(name);
-                for (int i = 1; i < cps.Count; i++) s.Append($" / U+{cps[i]:X4}");
-                s.Append($" (glyph {gid})");
-                return s.ToString();
-            }
-            return $"glyph {gid}";
-        }
-
-        /// Curated Unicode name lookup for the codepoints most relevant to Arabic text
-        /// rendering: ASCII, the Arabic block (base letters + harakat), and a generic
-        /// label for the Presentation Forms ranges. Unicode doesn't expose names via
-        /// the standard library so we hand-roll just what we need.
-        private static string UnicodeName(uint cp)
-        {
-            if (cp < 0x80)
-            {
-                if (cp >= 'A' && cp <= 'Z') return $"LATIN CAPITAL LETTER {(char)cp}";
-                if (cp >= 'a' && cp <= 'z') return $"LATIN SMALL LETTER {(char)('A' + cp - 'a')}";
-                if (cp >= '0' && cp <= '9') return $"DIGIT {(char)cp}";
-                if (cp == ' ') return "SPACE";
-                return "";
-            }
-            if (_arabicNames.TryGetValue(cp, out var n)) return n;
-            if (cp >= 0xFB50 && cp <= 0xFDFF) return $"ARABIC PRES.FORM-A";
-            if (cp >= 0xFE70 && cp <= 0xFEFF) return $"ARABIC PRES.FORM-B";
-            if (cp >= 0x0600 && cp <= 0x06FF) return "ARABIC";
-            return "";
-        }
-
-        // Curated Arabic codepoint names. Covers the base 28 letters, the eight common
-        // harakat, hamza variants, alef variants, tatweel, ta marbuta, alef maksura,
-        // and the ZWJ/ZWNJ shaping controls that come up when debugging RTLTMPro.
-        private static readonly Dictionary<uint, string> _arabicNames = new()
-        {
-            // hamza + alef family
-            { 0x0621, "ARABIC LETTER HAMZA" },
-            { 0x0622, "ARABIC LETTER ALEF WITH MADDA ABOVE" },
-            { 0x0623, "ARABIC LETTER ALEF WITH HAMZA ABOVE" },
-            { 0x0624, "ARABIC LETTER WAW WITH HAMZA ABOVE" },
-            { 0x0625, "ARABIC LETTER ALEF WITH HAMZA BELOW" },
-            { 0x0626, "ARABIC LETTER YEH WITH HAMZA ABOVE" },
-            // 28 base letters
-            { 0x0627, "ARABIC LETTER ALEF" },
-            { 0x0628, "ARABIC LETTER BEH" },
-            { 0x0629, "ARABIC LETTER TEH MARBUTA" },
-            { 0x062A, "ARABIC LETTER TEH" },
-            { 0x062B, "ARABIC LETTER THEH" },
-            { 0x062C, "ARABIC LETTER JEEM" },
-            { 0x062D, "ARABIC LETTER HAH" },
-            { 0x062E, "ARABIC LETTER KHAH" },
-            { 0x062F, "ARABIC LETTER DAL" },
-            { 0x0630, "ARABIC LETTER THAL" },
-            { 0x0631, "ARABIC LETTER REH" },
-            { 0x0632, "ARABIC LETTER ZAIN" },
-            { 0x0633, "ARABIC LETTER SEEN" },
-            { 0x0634, "ARABIC LETTER SHEEN" },
-            { 0x0635, "ARABIC LETTER SAD" },
-            { 0x0636, "ARABIC LETTER DAD" },
-            { 0x0637, "ARABIC LETTER TAH" },
-            { 0x0638, "ARABIC LETTER ZAH" },
-            { 0x0639, "ARABIC LETTER AIN" },
-            { 0x063A, "ARABIC LETTER GHAIN" },
-            { 0x0640, "ARABIC TATWEEL" },
-            { 0x0641, "ARABIC LETTER FEH" },
-            { 0x0642, "ARABIC LETTER QAF" },
-            { 0x0643, "ARABIC LETTER KAF" },
-            { 0x0644, "ARABIC LETTER LAM" },
-            { 0x0645, "ARABIC LETTER MEEM" },
-            { 0x0646, "ARABIC LETTER NOON" },
-            { 0x0647, "ARABIC LETTER HEH" },
-            { 0x0648, "ARABIC LETTER WAW" },
-            { 0x0649, "ARABIC LETTER ALEF MAKSURA" },
-            { 0x064A, "ARABIC LETTER YEH" },
-            // harakat
-            { 0x064B, "ARABIC FATHATAN" },
-            { 0x064C, "ARABIC DAMMATAN" },
-            { 0x064D, "ARABIC KASRATAN" },
-            { 0x064E, "ARABIC FATHA" },
-            { 0x064F, "ARABIC DAMMA" },
-            { 0x0650, "ARABIC KASRA" },
-            { 0x0651, "ARABIC SHADDA" },
-            { 0x0652, "ARABIC SUKUN" },
-            { 0x0653, "ARABIC MADDAH ABOVE" },
-            { 0x0654, "ARABIC HAMZA ABOVE" },
-            { 0x0655, "ARABIC HAMZA BELOW" },
-            { 0x0656, "ARABIC SUBSCRIPT ALEF" },
-            { 0x0670, "ARABIC LETTER SUPERSCRIPT ALEF" },
-            // RTL / shaping controls
-            { 0x200C, "ZERO WIDTH NON-JOINER" },
-            { 0x200D, "ZERO WIDTH JOINER" },
-            { 0x200E, "LEFT-TO-RIGHT MARK" },
-            { 0x200F, "RIGHT-TO-LEFT MARK" },
-            { 0x202B, "RIGHT-TO-LEFT EMBEDDING" },
-            { 0x202C, "POP DIRECTIONAL FORMATTING" },
-        };
+        // (reverse map, glyph lookup, atlas-populate, chip rendering, label
+        //  formatting, and Unicode-name lookup all live on TMPFontAssetView /
+        //  ArabicNames now — see those files.)
     }
 }
