@@ -1,0 +1,47 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0e284023414dfdf46a8d8e40105fc025, type: 3}
+  m_Name: Amiri-Regular SDF_Patched.featurepatch
+  m_EditorClassIdentifier: Assembly-CSharp-Editor::ArabicStudy.Editor.FontFeaturePatch.FontFeaturePatch
+  targetFontAsset: {fileID: 11400000, guid: c3f5a7a8abae79c46b02a308183840fe, type: 2}
+  extractorName: arabic-mark-variants
+  sourceFontPath: C:\Users\Aurelia Aurita\Offline\Random\unity-arabic\tmp-preview\Assets\Fonts\Amiri-Regular.ttf
+  extractedAtIso: 2026-05-23T21:20:21.570846+00:00
+  markToMarkRecords:
+  - baseMarkGlyphID: 97
+    baseMarkName: uni0651
+    baseMarkCodepoint: 1617
+    combiningMarkGlyphID: 94
+    combiningMarkName: uni064E
+    combiningMarkCodepoint: 1614
+    baseAnchorX: 0
+    baseAnchorY: 0
+    combiningAdjustmentX: 0
+    combiningAdjustmentY: -25
+    sourceNote: derived from GSUB Type-1 uni064E -> glyph01439 inside Type-6 ChainedContext
+      lookup #49 (inner #48, features=['rlig'], scripts=['DFLT', 'arab', 'latn']);
+      input anchor=(268,801), variant anchor=(0,952)
+    skip: 0
+  - baseMarkGlyphID: 97
+    baseMarkName: uni0651
+    baseMarkCodepoint: 1617
+    combiningMarkGlyphID: 95
+    combiningMarkName: uni064F
+    combiningMarkCodepoint: 1615
+    baseAnchorX: 0
+    baseAnchorY: 0
+    combiningAdjustmentX: -278
+    combiningAdjustmentY: 112
+    sourceNote: derived from GSUB Type-1 uni064F -> glyph01441 inside Type-6 ChainedContext
+      lookup #49 (inner #48, features=['rlig'], scripts=['DFLT', 'arab', 'latn']);
+      input anchor=(278,801), variant anchor=(0,913)
+    skip: 0

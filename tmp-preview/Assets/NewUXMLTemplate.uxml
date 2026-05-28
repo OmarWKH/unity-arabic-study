@@ -1,0 +1,3 @@
+<ui:UXML xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements" noNamespaceSchemaLocation="../UIElementsSchema/UIElements.xsd" editor-extension-mode="False">
+    <ui:Label text="نَّ نَّ" style="-unity-font-definition: url(&quot;project://database/Assets/Fonts/Amiri-Regular.ttf?fileID=12800000&amp;guid=ad35afc853ef462469f8c7be59c6861c&amp;type=3#Amiri-Regular&quot;); -unity-text-generator: advanced; font-size: 100px;"/>
+</ui:UXML>
