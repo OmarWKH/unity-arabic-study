@@ -50,24 +50,34 @@ All Python tools live in `tools/` and assume a venv at the repo root (`.venv/`, 
 pip install fonttools uharfbuzz
 ```
 
-### Font analysis (Python)
+### Python — ongoing products
+
+The two scripts most worth using on new fonts going forward.
 
 - **`score-arabic-font.py`** — Evaluates a font (or a directory of fonts) on 10 weighted criteria covering glyph coverage and direct vs context-wrapped GPOS/GSUB. Emits per-criterion completeness (X/Y present, list of missing items by Unicode name) and a post-rehome projection. For the harakat coverage criterion, the report groups by Arabic letter family so partial coverage is visible per letter (e.g. "ALEF has anchors, ALEF WITH HAMZA ABOVE doesn't").
 - **`rehome-arabic-presentation-forms.py`** — Adds cmap entries for missing Presentation Forms-B and shadda+harakat ligature codepoints, pointing them at whatever glyph the font already uses for the corresponding base Arabic codepoint. Fonts that score poorly because they ship base Arabic but no PF-B (a common SIL pattern) become usable with no glyph drawing needed.
-- **`shape-with-harfbuzz.py`** — Shapes an arbitrary codepoint sequence through HarfBuzz (the engine UI Toolkit uses) and prints the resulting glyph stream with x/y offsets and advances. This is the "what *should* happen" reference any TMP rendering can be compared against.
+- **`fetch-fonts.py`** + `candidate-fonts.txt` — Polite rate-limited downloader for a curated candidate font corpus. Useful when expanding the evaluation set. Downloads land in `font-cache/` (gitignored).
+
+### Python — investigative (used during diagnosis, kept for reference)
+
+These were the workhorses while we were chasing the Amiri bug. Now that the cause is understood and documented, they're mostly archival — but they're how you'd reproduce or extend the analysis.
+
+- **`shape-with-harfbuzz.py`** — Shapes an arbitrary codepoint sequence through HarfBuzz (the engine UI Toolkit uses) and prints the resulting glyph stream with x/y offsets and advances. This is the "what *should* happen" reference any TMP rendering can be compared against. The key script for finding out *what the font is actually trying to do*.
 - **`inspect-gsub-ligature.py`** — Walks a font's GSUB looking for ligature substitutions of a given glyph sequence. Reports direct Type-4 hits and context-wrapped (Type-5/6 → Type-4) hits separately, with the feature tags that reach each.
 - **`inspect-gpos-markmark.py`** — Same shape, for Mark-to-Mark records of a given (base mark, combining mark) pair.
-- **`fetch-fonts.py`** + `candidate-fonts.txt` — Polite rate-limited downloader for a curated candidate font corpus. Downloads land in `font-cache/` (gitignored).
 
-Together these are enough to take an unfamiliar font, predict its TMP behaviour, identify the specific gaps it has, and (sometimes) patch them.
+### Python — abandoned (kept for archaeology, do not use)
 
-### Editor tools (Unity, `Arabic Study` menu)
+- **`extract-arabic-mark-variants.py`** — Companion to the Unity Font Feature Patcher (see below). Walks GSUB for contextual single substitutions of harakat in shadda contexts and computes the y-offset between original and variant glyphs from their Mark-to-Base anchors. Output was intended to drive an automatic Mark-to-Mark patch. **Abandoned** because the y-offset derived from anchor data systematically overshoots what HarfBuzz actually applies (the variant glyph is drawn differently, not just translated), making the values require per-font empirical tuning. By the time we'd built the scoring tool, switching fonts turned out to be much cheaper than patching one. The script still runs and produces JSON, but the values it emits are not directly correct.
+
+### Editor tools (Unity, `Arabic Study` menu) — ongoing products
 
 - **Font Table Search** (`unity6/Assets/Editor/TMPFontTableSearch.cs`) — Inspector window for a TMP font asset's tables. Searchable by character / Unicode codepoint / glyph ID. Renders each glyph as a visual chip blitted from the atlas with a U+xxxx caption, so harakat and presentation forms are readable rather than abstract IDs. Foldout sections show the Character Table, Glyph Table, Ligature Records, Pair Adjustment (kerning), Mark-to-Base, and Mark-to-Mark records with counts. A secondary filter narrows hits to records referencing both the resolved glyph and the filter glyph — e.g. you query shadda, filter by fatha, and see only the Mark-to-Mark / kerning / ligature records that involve both.
 - **RTLTMPro Debugger** (`unity6/Assets/Editor/RTLTMProDebugger.cs`) — Reads an `RTLTextMeshPro` component (or a raw text input + flag toggles) and runs RTLTMPro's `FixRTL` pass, showing the input and output codepoint streams in two scrolling columns. Each row has an "Inspect in Font Table Search" button that deep-links into the search window with the codepoint pre-filled — useful for tracing how RTLTMPro transforms text and which feature-table entries apply to the original vs. the post-fix codepoints.
-- **Font Feature Patcher** (`unity6/Assets/Editor/FontFeaturePatch/`) — Plug-in editor window for injecting feature-table records that TMP's importer misses. Bound to a TMP font asset. Discovers extractor classes via reflection (current: `ArabicMarkVariantExtractor`, which invokes `tools/extract-arabic-mark-variants.py` to walk a font's GSUB for contextual single substitutions of harakat and synthesise corresponding Mark-to-Mark records). The window persists patches as ScriptableObjects sibling to their font asset, supports Apply / Re-apply / Revert, and exposes each record's offset values for empirical tuning.
 
-The patcher exists as a last-resort tool for fonts that *must* be used despite the GSUB-importer gap. In practice, the empirical work concluded that **picking a font that doesn't trigger the bug is much cheaper than patching one that does**, so the patcher is rarely the right answer. The infrastructure is here if you need it.
+### Editor tools — abandoned (kept for archaeology, do not use)
+
+- **Font Feature Patcher** (`unity6/Assets/Editor/FontFeaturePatch/`) — Plug-in editor window architecture for injecting feature-table records that TMP's importer misses. Designed to be extensible: each extraction strategy is an `IFontFeatureExtractor` discovered by reflection, the patcher persists records as ScriptableObjects sibling to their font asset, supports Apply / Re-apply / Revert, and exposes each record's values for empirical tuning. The only extractor written (`ArabicMarkVariantExtractor`, invoking `tools/extract-arabic-mark-variants.py`) is **abandoned for the same reason as that script**: the synthetic Mark-to-Mark offsets it produces need per-font, per-pair tuning to look right, which makes "switch fonts" the better answer in essentially every case. The infrastructure is here if you ever genuinely need to patch one specific font and have the time to tune values empirically, but treat it as a last resort.
 
 (There's also a `Run Full Setup` menu item that's a scratch tool used during early investigation — not interesting on its own.)
 
@@ -119,7 +129,7 @@ For shipping Arabic text in Unity 6 with TMP:
 3. **Enable Multi Atlas Textures on every Arabic font asset.** This single inspector toggle prevents most runtime tofu issues.
 4. **Pick a font with high direct harakat coverage.** Top empirically-validated picks: Vazirmatn, Tajawal, Thmanyah Sans. All work after the PF-B rehoming step this repo automates.
 5. **Score new fonts before committing to them.** `python tools/score-arabic-font.py path/to/font.ttf` prints a per-criterion breakdown with the specific missing items. Add it to your font-evaluation workflow.
-6. **If you must use a font that doesn't render directly**, the Font Feature Patcher can inject Mark-to-Mark records to bypass TMP's contextual-lookup blind spot. Expect to empirically tune the y-offset values — the anchor-delta default from the extractor is a starting point.
+6. **If a font you need doesn't render directly**, the answer is almost certainly to choose a different font, not to patch the broken one. The patcher in this repo is documented as abandoned for exactly this reason.
 
 ---
 

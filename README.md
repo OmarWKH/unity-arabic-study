@@ -15,22 +15,43 @@ If you're shipping Arabic in Unity: start with the [Quick-start](#quick-start) b
 
 ### Python tools (`tools/`)
 
+Ongoing products — worth using on new fonts:
+
 ```
-score-arabic-font.py                Score a font on 10 weighted criteria, with per-letter detail
-rehome-arabic-presentation-forms.py Add PF-B cmap entries from base Arabic glyphs
-shape-with-harfbuzz.py              Reference "what should happen" via HarfBuzz
-inspect-gsub-ligature.py            Walk GSUB for a specific substitution
-inspect-gpos-markmark.py            Walk GPOS for a specific Mark-to-Mark pair
-extract-arabic-mark-variants.py     Feeds the Unity Font Feature Patcher
+score-arabic-font.py                  Score a font on 10 weighted criteria, with per-letter detail
+rehome-arabic-presentation-forms.py   Add PF-B cmap entries from base Arabic glyphs
 fetch-fonts.py + candidate-fonts.txt  Polite downloader for a candidate corpus
+```
+
+Investigative — used during diagnosis, kept for reference:
+
+```
+shape-with-harfbuzz.py                Reference "what should happen" via HarfBuzz
+inspect-gsub-ligature.py              Walk GSUB for a specific substitution
+inspect-gpos-markmark.py              Walk GPOS for a specific Mark-to-Mark pair
+```
+
+Abandoned — kept for archaeology, do not use:
+
+```
+extract-arabic-mark-variants.py       Feeds the (also abandoned) Font Feature Patcher
 ```
 
 ### Editor tools (Unity, `Arabic Study` menu)
 
+Ongoing products:
+
 ```
 Font Table Search      Chip-rendered inspector of any TMP font asset's tables
 RTLTMPro Debugger      Before/after view of RTLTMPro's string transformation
-Font Feature Patcher   Inject missing GPOS records into a font asset (last-resort)
+```
+
+Abandoned — kept for archaeology, do not use:
+
+```
+Font Feature Patcher   Injects synthetic Mark-to-Mark records to bypass TMP's
+                       GSUB importer gap. Output requires per-font empirical
+                       tuning; switching fonts is the practical fix.
 ```
 
 ### Findings ([`FINDINGS.md`](FINDINGS.md))
