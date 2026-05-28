@@ -1,157 +1,112 @@
 # Findings — Arabic Text Rendering in Unity TMP
 
-A trail of debugging notes from "why does shadda+fatha overlap on Amiri in TMP" through to "here are three fonts that render Arabic correctly in TMP without patching." Captured here because the lessons aren't obvious and the existing Unity / TMP documentation doesn't mention any of them.
+> *Drafted by Claude (Anthropic) in the course of the debugging work captured in this repo. Claims describe what was actually observed; the conclusions about TMP internals are inferred from black-box behaviour and the GSUB/GPOS data of the fonts used. Verify before relying on them in production.*
 
-If you came here to ship Arabic in a Unity project: jump to [Recommendations](#recommendations) and [Quick-start](#quick-start).
+What this document is: the lessons learned while debugging "why does shadda+fatha overlap on Amiri in TMP", together with the tooling we built to investigate and remediate the problem. None of the bugs documented here appear in Unity's or TMP's official material.
 
-If you came here to understand *why*: read in order.
-
----
-
-## TL;DR
-
-- The "TMP preview vs bundled TMP" comparison the project was originally framed around **doesn't apply on Unity 6**. The OpenType layout features that the `com.unity.textmeshpro@3.2.0-pre.15` preview added (Ligatures, Mark-to-Base, Mark-to-Mark) have been merged into the bundled `com.unity.ugui@2.0.0` that ships with Unity 6.3. The standalone preview package is deprecated on Unity 6 and refuses to install.
-
-- TMP's GSUB/GPOS importer does not recurse through OpenType **chained-context wrappers** (Type 5/6 in GSUB, Type 7/8 in GPOS). When a font expresses a substitution or anchor adjustment via a contextual wrapper around an inner lookup, TMP imports the wrapper but not the inner lookup. The data is in the font, the records never reach the TMP asset, and the rendering is wrong. This is the root cause of Amiri's shadda+fatha overlap.
-
-- TMP's dynamic-atlas auto-add silently fails for some codepoints unless **`Multi Atlas Textures` is enabled** on the font asset. Without it, calls to `TMP_FontAsset.TryAddCharacters` quietly return `false` for any glyph that would trigger a new atlas page — including codepoints like `U+FC60` (the precomposed shadda+fatha ligature that RTLTMPro emits). Symptom: the character renders as `□` "tofu" and the console prints `was not found in the [font asset] or any potential fallbacks`. Fix: enable the toggle.
-
-- RTLTMPro's text-rewriting (a string-level pass that happens before TMP renders anything) is independent of OpenType GSUB. With `Preserve Shadda` off, RTLTMPro emits the precomposed shadda+vowel codepoints `U+FC5E–U+FC63`. The font needs to have those glyphs in its cmap for that path to work.
-
-- Of 42 candidate Arabic fonts evaluated, **three render shadda+fatha correctly in TMP without any patching**: Vazirmatn, Tajawal, and Thmanyah Sans (the latter two after a simple "rehoming" step that adds Presentation Forms-B codepoints by copying the base Arabic glyphs into them).
-
-- The metric that correlates best with empirical correctness in TMP is the **per-harakat, per-base-letter direct Mark-to-Base coverage**. A font scoring high on this metric will render harakat correctly across a wide range of letters. Noto Naskh Arabic, despite topping the as-is leaderboard at 85/100, scored 33% on this metric — and indeed had visible misrenders on letters outside its anchored 48-of-147 set.
+If you came to ship Arabic in a Unity project, jump to [Recommendations](#recommendations) and [Quick-start](#quick-start). If you came to understand *why*, read in order.
 
 ---
 
-## The original hypothesis
+## Three core findings
 
-> TMP 3.2.0-pre.15 added "new OpenType Layout features such as Ligatures, Mark-to-Base and Mark-to-Mark." If we compare it against the older bundled TMP, side by side with the same Arabic font, we should see the rendering difference and document it.
+### 1. TMP's GSUB / GPOS importer does not recurse through contextual lookup wrappers
 
-That was the plan that justified the two-project layout. It survived about an hour of contact with Unity 6.
+OpenType encodes many position- and substitution-context rules through **chained-context wrappers** — Type 5/6 in GSUB, Type 7/8 in GPOS — that point at inner lookups via `SubstLookupRecord` / `PosLookupRecord`. The wrapper is referenced by a feature; the inner lookup is not. A correct OpenType implementation enumerates the wrapper's inner references and applies them.
 
-On Unity 6 (the version we're targeting), `com.unity.ugui@2.0.0` is the only viable TMP package: it bundles all of TMP including the OpenType layout features. The standalone `com.unity.textmeshpro` package is **deprecated** on Unity 6 — Package Manager prints `com.unity.textmeshpro is deprecated: TextMeshPro functionalities are now included in the com.unity.ugui package` and refuses to install. The "preview features" we wanted to compare aren't preview anymore; they're stable.
+**TMP imports the wrapper and ignores the inner reference.** Records that exist in the font but are reachable only through a context wrapper never make it into the TMP font asset. This is a structural gap, not a one-off bug: any font that expresses positioning or substitution through contextual lookups (which is most well-built Arabic fonts) will misrender in TMP.
 
-We kept `tmp-2022/` as a control project (Unity 2022.3 LTS + the standalone preview) for verification, but the main story moved to `unity6/`: one project, bundled TMP, focus on what *actually* breaks Arabic rendering in this stack.
+Concrete example: Amiri's shadda+fatha rendering. The font handles the case by GSUB-substituting fatha → a lifted variant glyph via a Type 6 chained-context wrapping a Type 1 single substitution. TMP sees the Type 6 wrapper, fails to recurse, never registers the substitution, and renders the regular fatha at the same anchor as shadda — they overlap. HarfBuzz (which UI Toolkit uses) renders correctly because it executes the full OpenType spec.
 
----
+The repo's diagnostic scripts (`tools/inspect-gsub-ligature.py`, `tools/inspect-gpos-markmark.py`, `tools/shape-with-harfbuzz.py`) walk through this evidence for any font on demand.
 
-## The Amiri shadda+fatha bug
+### 2. TMP's runtime dynamic-atlas adder silently drops codepoints without Multi Atlas Textures
 
-The first concrete failure was rendering of vocalised Arabic with [Amiri](https://www.amirifont.org/) — a high-quality classical Naskh font widely used for typesetting Arabic. With the test string containing `بَّ` (a base letter with both shadda and fatha), the two marks visually overlap when rendered through TMP. The same text in UI Toolkit (which uses HarfBuzz under the hood) renders correctly.
+`TMP_FontAsset.TryAddCharacters` and TMP's own render-time auto-add both return `false` (silently) for codepoints that would trigger allocation of a new atlas page, *unless* the font asset has **Multi Atlas Textures** enabled. The console shows:
 
-Same font binary, same input string, different rendering. The bug is in the path between font and pixel.
+> `\u<XXXX> was not found in the [font asset] or any potential fallbacks. It was replaced by Unicode character □`
 
-### The chase
+Found while debugging `U+FC60` (the precomposed shadda+fatha ligature RTLTMPro emits). The font's cmap has the glyph, the Font Asset Creator's offline "Update Atlas Texture" workflow can add it, but every runtime path fails.
 
-1. **First hypothesis: missing Mark-to-Mark anchor between shadda and fatha.** Ruled out — Amiri has Mark-to-Mark lookups, but the `(shadda, fatha)` pair isn't covered by any of them. The static GPOS analysis (`tools/inspect-gpos-markmark.py`) was definitive on this.
+**Fix: enable Multi Atlas Textures on every Arabic font asset.** It's a single inspector toggle. Without it, the runtime adder silently drops characters from the Presentation Forms ranges; with it, the adder happily allocates new atlas pages.
 
-2. **Second hypothesis: a precomposed ligature substitution (`<shadda, fatha> → U+FC60`) inside a GSUB chained-context wrapper that TMP doesn't recurse into.** Ruled out for the simple "ligature" form — Amiri's GSUB has Type 4 Ligature lookups, but none rewrites the `<shadda, fatha>` sequence into a single glyph. (`tools/inspect-gsub-ligature.py`)
+This isn't in TMP's documentation. We hit it by comparing what the offline tool can do (it bypasses some of the runtime adder's guards) against what runtime APIs can do.
 
-3. **What HarfBuzz actually does.** Shaping the sequence `<U+0628 base, U+0651 shadda, U+064E fatha>` through `uharfbuzz` (the same engine UI Toolkit uses) and reading out the resulting glyph stream made the actual mechanism visible (`tools/shape-with-harfbuzz.py`):
-   - HarfBuzz applies a contextual **Single Substitution** (Type 6 ChainedContext wrapping a Type 1 Single): when fatha follows shadda, fatha is replaced by a separately-designed variant glyph (`glyph01439`) drawn slightly higher on its canvas.
-   - GPOS Mark-to-Base then positions both the shadda and the variant fatha with their respective anchors. The variant fatha's higher visual position keeps it clear of the shadda.
+### 3. Per-letter direct Mark-to-Base coverage is a better TMP-suitability predictor than overall feature richness
 
-4. **The root cause.** TMP's GSUB importer enumerates feature → lookup references but **doesn't recurse through Type 5/6 ChainedContext wrappers** to register inner lookups. The variant-fatha substitution lives in such a wrapper; the inner Single substitution isn't referenced by any feature directly (only reachable through the chain). So TMP never sees the substitution, never adds the variant glyph mapping, and at render time uses the regular fatha glyph. Both marks then attach to the base letter at the same Mark-to-Base anchor and overlap.
+When we scored 42 candidate Arabic fonts and then visually verified the top ones, Noto Naskh Arabic — which topped the as-is scoreboard at 85/100 — turned out to misrender on common Arabic letters. Reason: Noto Naskh's direct Mark-to-Base coverage is 33% across (harakat × base) pairs. The harakat are anchored on 48 of 147 base presentation forms. On letters outside the anchored 48, the marks fall back to default positioning, which TMP places incorrectly.
 
-The HarfBuzz path works because HarfBuzz executes the full OpenType spec including contextual substitution. TMP's homegrown OpenType-subset shaper doesn't.
+Fonts with high `harakat_mark_to_base_coverage` rendered correctly. Vazirmatn (96%), Tajawal (93%), Thmanyah Sans (88%) — three different design families — all worked. Noto Naskh, with 33%, did not.
 
-This is a structural gap, not a one-off bug — any font that uses chained-context Single substitution to produce stacking-aware mark variants (which is the conventional approach for Arabic harakat) will misrender in TMP.
+The scoring tool (`tools/score-arabic-font.py`) reports this metric with per-letter-family detail, so you can see precisely *which* letters lack anchors for which harakat. A font scoring low here is a font that will visibly misrender on whatever letters are missing, no matter how good its other scores are.
 
 ---
 
-## Attempted fixes, in increasing order of practicality
+## Tools
 
-### Patch the font asset
+All Python tools live in `tools/` and assume a venv at the repo root (`.venv/`, gitignored).
 
-We built a small Editor pipeline (under `unity6/Assets/Editor/FontFeaturePatch/`) that runs a Python extractor (`tools/extract-arabic-mark-variants.py`) over the source font, identifies the contextual Single substitutions TMP missed, computes the visual offset between original and variant glyphs from their Mark-to-Base anchors, and synthesises matching Mark-to-Mark records that are then injected into the font asset's `MarkToMarkAdjustmentRecords` list. The records become real TMP-extractable data; the original mark glyphs get positioned via Mark-to-Mark instead of the missing contextual variant swap.
+```
+pip install fonttools uharfbuzz
+```
 
-This works in principle but requires **per-font empirical tuning** of the y-offset value, because the anchor delta computed from the font tables (~151 for shadda+fatha on Amiri) overshoots what HarfBuzz actually applies (~51 of the same units). The variant glyph isn't just the original glyph translated; it's drawn differently. Without a full HarfBuzz-grade positioning calculation, the offset we'd need to apply is empirical.
+### Font analysis (Python)
 
-We didn't pursue this further once it became clear that *picking a different font* avoided the problem entirely. The patcher infrastructure is still in the repo (`Arabic Study → Font Feature Patcher` menu) for anyone who needs to bypass the bug for a specific font.
+- **`score-arabic-font.py`** — Evaluates a font (or a directory of fonts) on 10 weighted criteria covering glyph coverage and direct vs context-wrapped GPOS/GSUB. Emits per-criterion completeness (X/Y present, list of missing items by Unicode name) and a post-rehome projection. For the harakat coverage criterion, the report groups by Arabic letter family so partial coverage is visible per letter (e.g. "ALEF has anchors, ALEF WITH HAMZA ABOVE doesn't").
+- **`rehome-arabic-presentation-forms.py`** — Adds cmap entries for missing Presentation Forms-B and shadda+harakat ligature codepoints, pointing them at whatever glyph the font already uses for the corresponding base Arabic codepoint. Fonts that score poorly because they ship base Arabic but no PF-B (a common SIL pattern) become usable with no glyph drawing needed.
+- **`shape-with-harfbuzz.py`** — Shapes an arbitrary codepoint sequence through HarfBuzz (the engine UI Toolkit uses) and prints the resulting glyph stream with x/y offsets and advances. This is the "what *should* happen" reference any TMP rendering can be compared against.
+- **`inspect-gsub-ligature.py`** — Walks a font's GSUB looking for ligature substitutions of a given glyph sequence. Reports direct Type-4 hits and context-wrapped (Type-5/6 → Type-4) hits separately, with the feature tags that reach each.
+- **`inspect-gpos-markmark.py`** — Same shape, for Mark-to-Mark records of a given (base mark, combining mark) pair.
+- **`fetch-fonts.py`** + `candidate-fonts.txt` — Polite rate-limited downloader for a curated candidate font corpus. Downloads land in `font-cache/` (gitignored).
 
-### Switch fonts
+Together these are enough to take an unfamiliar font, predict its TMP behaviour, identify the specific gaps it has, and (sometimes) patch them.
 
-The patcher made the cost-benefit clear: spend ongoing effort tuning one font per project, or spend ~30 minutes finding a font that doesn't trigger the bug. We built a scoring tool to do the latter at scale.
+### Editor tools (Unity, `Arabic Study` menu)
 
----
+- **Font Table Search** (`unity6/Assets/Editor/TMPFontTableSearch.cs`) — Inspector window for a TMP font asset's tables. Searchable by character / Unicode codepoint / glyph ID. Renders each glyph as a visual chip blitted from the atlas with a U+xxxx caption, so harakat and presentation forms are readable rather than abstract IDs. Foldout sections show the Character Table, Glyph Table, Ligature Records, Pair Adjustment (kerning), Mark-to-Base, and Mark-to-Mark records with counts. A secondary filter narrows hits to records referencing both the resolved glyph and the filter glyph — e.g. you query shadda, filter by fatha, and see only the Mark-to-Mark / kerning / ligature records that involve both.
+- **RTLTMPro Debugger** (`unity6/Assets/Editor/RTLTMProDebugger.cs`) — Reads an `RTLTextMeshPro` component (or a raw text input + flag toggles) and runs RTLTMPro's `FixRTL` pass, showing the input and output codepoint streams in two scrolling columns. Each row has an "Inspect in Font Table Search" button that deep-links into the search window with the codepoint pre-filled — useful for tracing how RTLTMPro transforms text and which feature-table entries apply to the original vs. the post-fix codepoints.
+- **Font Feature Patcher** (`unity6/Assets/Editor/FontFeaturePatch/`) — Plug-in editor window for injecting feature-table records that TMP's importer misses. Bound to a TMP font asset. Discovers extractor classes via reflection (current: `ArabicMarkVariantExtractor`, which invokes `tools/extract-arabic-mark-variants.py` to walk a font's GSUB for contextual single substitutions of harakat and synthesise corresponding Mark-to-Mark records). The window persists patches as ScriptableObjects sibling to their font asset, supports Apply / Re-apply / Revert, and exposes each record's offset values for empirical tuning.
 
-## The scoring tool
+The patcher exists as a last-resort tool for fonts that *must* be used despite the GSUB-importer gap. In practice, the empirical work concluded that **picking a font that doesn't trigger the bug is much cheaper than patching one that does**, so the patcher is rarely the right answer. The infrastructure is here if you need it.
 
-`tools/score-arabic-font.py` evaluates fonts against ten weighted criteria and emits both a per-font breakdown and a comparison table across multiple fonts:
-
-| Criterion | What it measures | Weight |
-| --- | --- | --- |
-| `base_arabic_coverage` | 28 base letters + harakat present in cmap | 5 |
-| `presentation_forms_b` | U+FE70–FEFC coverage (RTLTMPro's output) | 20 |
-| `shadda_vowel_ligatures` | U+FC5E–FC63 precomposed forms | 10 |
-| `presentation_forms_a_common` | A handful of common PF-A ligatures | 5 |
-| `mark_to_base_directness` | % of Type-4 records reachable without context | 10 |
-| `mark_to_mark_directness` | % of Type-6 records reachable without context | 10 |
-| `shadda_vowel_mark_to_mark` | Direct MkMk for shadda + each common harakat | 15 |
-| `harakat_mark_to_base_coverage` | Per-(harakat × base) direct anchor coverage | 15 |
-| `arabic_shaping_features` | `init/medi/fina/isol/rlig/ccmp` under script `arab` | 5 |
-| `kerning_directness` | Direct PairPos / total | 5 |
-
-Weights bias toward "works without patching" — a font with rich contextual lookups scores lower than one with simpler, directly-referenced data, because TMP can read the latter but not the former.
-
-The tool also computes a **post-rehome projection**: what the overall score would become if the Presentation Forms-B coverage were filled by copying base Arabic glyphs into PF codepoints. This is the operation `tools/rehome-arabic-presentation-forms.py` actually performs — adds cmap entries for missing PF-B codepoints, pointing them at whatever glyph the font's base codepoint already uses. The rendered shape is the isolated form rather than the contextually-correct shape, but that's an acceptable degradation when the alternative is rendering nothing.
-
-For each criterion, the tool emits both summary counts ("139/141 codepoints present") and the specific missing items with their Unicode names. For the harakat coverage criterion, it groups by Arabic letter family — so the report directly shows "alef has anchors, alef-with-hamza-above doesn't" rather than a single opaque percentage.
+(There's also a `Run Full Setup` menu item that's a scratch tool used during early investigation — not interesting on its own.)
 
 ---
 
-## Empirical results
+## The Amiri case, briefly
 
-Evaluated 42 candidate Arabic fonts pulled from Google Fonts, aliftype (the Amiri authors), rastikerdar (Persian fonts), and a curated set of corporate/government typefaces (Dubai Font, Thmanyah Sans).
+The debugging that surfaced finding 1 took place against the Amiri font, rendering the string `بَّ` (basic baa + shadda + fatha). The two marks visually overlap in TMP; the same text renders correctly in UI Toolkit.
 
-### Top 10 after the post-rehome pass
+We confirmed Amiri does not have a Mark-to-Mark anchor record for the `(shadda, fatha)` pair, and does not have a Type-4 ligature substitution for the sequence. What it does have is a contextual *single* substitution that — when fatha follows shadda — swaps fatha for a different glyph (`glyph01439`, with no cmap entry, designed slightly higher) so that after Mark-to-Base anchoring the two marks sit clear of each other. The substitution is reachable only via a Type-6 ChainedContext wrapper around a Type-1 Single, in the `rlig` feature for the Arabic script. TMP imports the wrapper, doesn't recurse, and the substitution never fires.
 
-| Font | As-is | After rehome | Why interesting |
+`tools/shape-with-harfbuzz.py` showed the substitution's output directly. `tools/inspect-gsub-ligature.py` walked Amiri's GSUB tree and found the substitution buried under the chain. After that the cause and mechanism were clear.
+
+---
+
+## Empirical font evaluation
+
+Forty-two candidate Arabic fonts pulled from Google Fonts, aliftype (the Amiri authors), rastikerdar (Persian fonts), and a small set of government/corporate typefaces (Dubai Font, Thmanyah Sans). Each scored by `tools/score-arabic-font.py`, then the top fonts visually verified in TMP.
+
+Top 10 after post-rehome adjustment:
+
+| Font | As-is | After PF-B rehome | Notable |
 | --- | --- | --- | --- |
-| Vazirmatn (variable) | 83.4 | **93.4** | 96% direct harakat coverage — highest in the set |
-| Thmanyah Sans | 75.3 | **91.6** | Only font with 100% shadda+vowel Mark-to-Mark (including the kasra pair other fonts omit) |
+| Vazirmatn (variable) | 83.4 | **93.4** | 96% direct harakat coverage — highest |
+| Thmanyah Sans | 75.3 | 91.6 | Only font with 100% shadda+vowel MkMk including the kasra pair |
 | Mirza | 75.3 | 91.6 | Persian Naskh with comprehensive direct GPOS |
-| El Messiri | 74.5 | 90.8 | Modern Arabic display, clean profile |
-| Dubai (4 weights) | 74.4 | 90.7 | Government-commissioned, polished |
-| Tajawal | 81.5 | **87.7** | Already has shadda ligatures, just needs PF-B rehoming |
-| Noto Naskh Arabic | 85.2 | 85.3 | Tops the as-is leaderboard but only 33% harakat coverage |
-| Noto Sans Arabic | 85.2 | 85.3 | Identical profile to Noto Naskh |
-| Estedad | 84.9 | 85.3 | Only font in the set with 100% Arabic shaping features |
+| El Messiri | 74.5 | 90.8 | Modern Arabic display |
+| Dubai (Regular) | 74.4 | 90.7 | Polished, restricted commercial license |
+| Tajawal | 81.5 | **87.7** | Has shadda ligatures + 87% harakat coverage |
+| Noto Naskh Arabic | 85.2 | 85.3 | Tops as-is, but only 33% harakat coverage; misrenders |
+| Noto Sans Arabic | 85.2 | 85.3 | Same profile as Noto Naskh |
+| Estedad (variable) | 84.9 | 85.3 | Only font with 100% Arabic shaping features |
 | Noto Kufi Arabic | 81.3 | 81.5 | Same Noto profile, Kufic style |
 
-### What rendered correctly in practice
+**Visually confirmed as rendering shadda+fatha correctly in TMP without font patching:** Vazirmatn-rehomed, Tajawal-rehomed, Thmanyah Sans-rehomed. All three sit in `unity6/Assets/Fonts/` with the `-pfb-rehomed` suffix.
 
-Three fonts were empirically validated as rendering shadda+fatha correctly on basic-baa in TMP, with no font-asset patching required:
+**Notably not in the working set despite topping the as-is leaderboard:** Noto Naskh Arabic — empirical signal that the overall score over-weighted feature presence and under-weighted per-letter coverage. The per-harakat per-letter breakdown was the more reliable indicator.
 
-- **Vazirmatn (rehomed)** — top scorer, 96% harakat coverage
-- **Tajawal (rehomed)** — has shadda+vowel ligatures plus 87% harakat coverage
-- **Thmanyah Sans (rehomed)** — uniquely has direct Mark-to-Mark for *all four* shadda+vowel pairs
-
-These are now in `unity6/Assets/Fonts/` with their `-pfb-rehomed` suffix.
-
-Notably absent from the working set: **Noto Naskh Arabic**. Despite topping the as-is leaderboard, its low direct harakat coverage (33% per the per-letter breakdown — anchors for only 48 of 147 base presentation forms) translated to visible misrenders on common letters in actual TMP scenes. This is a real empirical signal that the scoring tool's overall metric over-weighted feature presence and under-weighted per-letter coverage; the per-harakat breakdown was the more reliable indicator.
-
-### A typography note
-
-The "shadda + kasra" direct Mark-to-Mark pair is missing from almost every font in the set, including the top performers — only Thmanyah Sans has it. The pair isn't a coincidence: kasra sits *below* the letter while shadda sits *above*, so the two never visually conflict and don't need a Mark-to-Mark record to position correctly relative to each other. A font scoring 75% (3 of 4) on the shadda+vowel MkMk criterion is effectively at 100% for the cases that matter.
-
----
-
-## TMP's runtime atlas bug
-
-A separate gotcha discovered along the way: `TMP_FontAsset.TryAddCharacters` silently fails for certain codepoints when **Multi Atlas Textures** isn't enabled on the font asset. The failure mode is:
-
-1. Source font has the codepoint (verified via the font's cmap).
-2. Font Asset Creator's "Update Atlas Texture" inspector workflow can add the codepoint.
-3. Runtime `TryAddCharacters` call (whether ours via the patcher's atlas-populate helper or TMP's own shaper at render time) returns `false` and no glyph gets added.
-4. Console shows `\u<XXXX> was not found in the [font asset] or any potential fallbacks. It was replaced by Unicode character □`.
-
-Affected codepoints in our investigation: `U+FC60` (the precomposed shadda+fatha ligature). Other Presentation Forms codepoints are presumably also affected when the font's first atlas page can't accommodate them.
-
-**Fix: enable Multi Atlas Textures.** The toggle is on the font asset in the inspector. Once enabled, the runtime adder happily allocates new atlas pages and the missing glyphs render.
-
-This isn't documented in any TMP material we found. It's the kind of bug that's most easily diagnosed by comparing what the Font Asset Creator's offline workflow can do (it bypasses some of the runtime adder's guards) against what runtime APIs can do.
+A typography note worth recording: the **shadda+kasra** direct Mark-to-Mark pair is absent in almost every font in the set (only Thmanyah Sans has it). The pair isn't a coincidence — kasra sits *below* the letter while shadda sits *above*, so the two never visually conflict and don't need a Mark-to-Mark adjustment to coexist. A font scoring 75% on the shadda+vowel MkMk criterion (3 of 4) is effectively at 100% for the cases that actually matter.
 
 ---
 
@@ -159,70 +114,48 @@ This isn't documented in any TMP material we found. It's the kind of bug that's 
 
 For shipping Arabic text in Unity 6 with TMP:
 
-1. **Use the bundled TMP** — `com.unity.ugui@2.0.0`. Don't add `com.unity.textmeshpro` as a separate dependency on Unity 6; it's deprecated and will produce confusing warnings.
-
-2. **Use RTLTMPro** for the text-shaping pass. The OmarWKH fork (`https://github.com/OmarWKH/RTLTMPro.git?path=/UPMPackage`) is the merge of the original maintainer's v4.0.0 with a "Preserve Shadda" option. Whether to enable Preserve Shadda depends on the font: leave it off (which causes RTLTMPro to emit `U+FC5E–FC63` precomposed forms) if your font has those codepoints; turn it on (which leaves shadda + vowel as two glyphs) if your font has direct Mark-to-Mark for those pairs.
-
-3. **Enable Multi Atlas Textures on every Arabic font asset.** Without it, the runtime dynamic-atlas adder will silently drop characters from the Presentation Forms ranges. This single toggle prevents most runtime-tofu issues with Arabic.
-
-4. **Pick a font with high direct harakat coverage.** Top empirically-validated picks (in alphabetical order): Tajawal, Thmanyah Sans, Vazirmatn. All work after a simple PF-B rehoming step that this repo automates. Vazirmatn has the broadest direct coverage, Thmanyah is uniquely complete on shadda+vowel pairs, Tajawal is the safest license-wise (clean SIL OFL).
-
-5. **Score new fonts before committing to them.** `tools/score-arabic-font.py path/to/font.ttf` prints a per-criterion breakdown with the specific missing items and a recommendation for what (if anything) the font would need to be usable. Run it before adding a font to your project.
-
-6. **If you must use a font that doesn't work directly**, the Font Feature Patcher (`Arabic Study → Font Feature Patcher` menu) can inject Mark-to-Mark records that bypass TMP's contextual-lookup blind spot. Be prepared to empirically tune the y-offset values — the anchor-delta default from the extractor is a starting point, not the right answer.
-
----
-
-## Repository orientation
-
-```
-unity-arabic/
-├── unity6/                  ← main Unity 6.3 project, all editor tools + winning fonts
-├── tmp-2022/                ← control: Unity 2022.3 LTS + standalone TMP preview
-├── tools/                   ← Python tooling (see tools/ section below)
-├── font-cache/              ← gitignored, scratch dir for font candidates being evaluated
-├── README.md                ← orientation, points here
-└── FINDINGS.md              ← this document
-```
-
-### Tools
-
-All scripts are in `tools/` and run from a Python venv at the repo root (`.venv/`, gitignored).
-
-```
-inspect-gpos-markmark.py        diagnostic — does the font have Mark-to-Mark for a given pair?
-inspect-gsub-ligature.py        diagnostic — does the font have a ligature substitution for a sequence?
-shape-with-harfbuzz.py          ground-truth shaper output (uses uharfbuzz)
-extract-arabic-mark-variants.py extractor used by the Unity Font Feature Patcher
-score-arabic-font.py            10-criterion scorer with per-criterion details and post-rehome projection
-rehome-arabic-presentation-forms.py    adds PF-B cmap entries pointing at base Arabic glyphs
-fetch-fonts.py + candidate-fonts.txt   polite downloader for the candidate font corpus
-```
-
-### Editor tools (under `Arabic Study` menu in Unity)
-
-```
-Run Full Setup               creates a font asset + test scene from Amiri-Regular.ttf
-Font Table Search            chip-rendered inspector of any TMP font asset's tables, with secondary filter
-RTLTMPro Debugger            before/after view of what RTLTMPro does to a string, with cross-links into Font Table Search
-Font Feature Patcher         injects missing-from-import GPOS records into a font asset (per-font, persisted)
-```
+1. **Use the bundled TMP** — `com.unity.ugui@2.0.0`. Don't add `com.unity.textmeshpro` as a separate dependency on Unity 6.
+2. **Use RTLTMPro** for shaping. The OmarWKH fork (`https://github.com/OmarWKH/RTLTMPro.git?path=/UPMPackage`) is the maintained merge of upstream v4.0.0 plus a Preserve Shadda option. Leave Preserve Shadda off if your font has the precomposed `U+FC5E–FC63` codepoints (Vazirmatn, Thmanyah, Tajawal-rehomed all do); turn it on if your font has direct Mark-to-Mark for shadda+vowel pairs.
+3. **Enable Multi Atlas Textures on every Arabic font asset.** This single inspector toggle prevents most runtime tofu issues.
+4. **Pick a font with high direct harakat coverage.** Top empirically-validated picks: Vazirmatn, Tajawal, Thmanyah Sans. All work after the PF-B rehoming step this repo automates.
+5. **Score new fonts before committing to them.** `python tools/score-arabic-font.py path/to/font.ttf` prints a per-criterion breakdown with the specific missing items. Add it to your font-evaluation workflow.
+6. **If you must use a font that doesn't render directly**, the Font Feature Patcher can inject Mark-to-Mark records to bypass TMP's contextual-lookup blind spot. Expect to empirically tune the y-offset values — the anchor-delta default from the extractor is a starting point.
 
 ---
 
 ## Quick-start
 
-If you just want to render Arabic correctly in a Unity 6.3 project:
+To render Arabic correctly in a Unity 6.3 project:
 
-1. `git clone` this repo, open `unity6/` in Unity 6.3.
-2. Package Manager will resolve UGUI (bundled) and RTLTMPro automatically.
-3. Pick one of `unity6/Assets/Fonts/Vazirmatn-Variable-pfb-rehomed.ttf`, `Tajawal-Regular-pfb-rehomed.ttf`, or `ThmanyahSans-Regular-pfb-rehomed.otf`.
+1. Clone this repo, open `unity6/` in Unity 6.3.
+2. Package Manager resolves UGUI (bundled) + RTLTMPro automatically.
+3. Pick one of `Vazirmatn-Variable-pfb-rehomed.ttf`, `Tajawal-Regular-pfb-rehomed.ttf`, or `ThmanyahSans-Regular-pfb-rehomed.otf` from `unity6/Assets/Fonts/`.
 4. Generate a TMP SDF font asset from it via the Font Asset Creator. **Enable Multi Atlas Textures.**
-5. Use it in a `TextMeshProUGUI` with `RTLTextMeshPro` (the RTLTMPro variant) for any Arabic text. With Preserve Shadda off for fonts that have FC5E–FC63 (Vazirmatn, Thmanyah, Tajawal-rehomed all do).
+5. Use it in `TextMeshProUGUI` via the `RTLTextMeshPro` component for any Arabic text.
 
-If you want to evaluate a new font:
+To evaluate a new font:
 
-1. `pip install fonttools uharfbuzz` (one-time).
-2. `python tools/score-arabic-font.py path/to/font.ttf` — read the per-criterion breakdown.
-3. If `presentation_forms_b` is low but `base_arabic_coverage` is high: `python tools/rehome-arabic-presentation-forms.py path/to/font.ttf` produces a rehomed variant.
-4. Re-score. If the rehomed score is in the 85+ range, the font is likely a viable TMP font.
+```bash
+python -m venv .venv && source .venv/Scripts/activate
+pip install fonttools uharfbuzz
+python tools/score-arabic-font.py path/to/font.ttf
+# Optional, if PF-B coverage is low but base Arabic coverage is high:
+python tools/rehome-arabic-presentation-forms.py path/to/font.ttf
+python tools/score-arabic-font.py path/to/font-pfb-rehomed.ttf
+```
+
+---
+
+## Repository layout
+
+```
+unity-arabic/
+├── unity6/         ← main Unity 6.3 project, editor tools, validated fonts
+├── tmp-2022/       ← control project (Unity 2022.3 LTS + standalone TMP preview)
+├── tools/          ← Python font-analysis tooling
+├── font-cache/     ← gitignored scratch dir for candidates
+├── README.md       ← orientation
+└── FINDINGS.md     ← this document
+```
+
+The `tmp-2022/` control project verified that the OpenType features in Unity 6's bundled TMP match what the standalone `com.unity.textmeshpro@3.2.0-pre.15` preview provided pre-merge. It's parked; the active work happens in `unity6/`.

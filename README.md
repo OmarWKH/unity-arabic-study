@@ -1,32 +1,59 @@
 # unity-arabic
 
-Investigation of Arabic text rendering in Unity 6 with TextMeshPro + RTLTMPro. What started as a "compare TMP preview vs bundled TMP" study turned into a deeper look at why a popular Arabic font (Amiri) misrenders vocalised text in TMP, what TMP's GSUB/GPOS importer leaves on the table, which fonts work reliably anyway, and how to evaluate any new Arabic font for TMP-suitability.
+> *Drafted by Claude (Anthropic) in collaboration with the actual debugging work in this repo. Verify any non-obvious claims before relying on them.*
 
-**The full write-up is in [`FINDINGS.md`](FINDINGS.md).** Recommended reading if you're shipping Arabic in Unity.
+Tooling and notes for shipping Arabic text in Unity 6 with TextMeshPro + RTLTMPro. The repo collects:
 
-## TL;DR
+- **Python tools** for analysing, scoring, and patching Arabic fonts (`tools/`)
+- **Unity Editor tools** for inspecting and modifying TMP font assets (`unity6/Assets/Editor/`)
+- **Three empirically-validated fonts** that render Arabic correctly in TMP without further patching (`unity6/Assets/Fonts/*-pfb-rehomed.*`)
+- **A findings document** explaining what's broken in TMP's Arabic handling, what the workarounds are, and how to evaluate new fonts ([`FINDINGS.md`](FINDINGS.md))
 
-- TMP's GSUB/GPOS importer doesn't recurse through OpenType chained-context wrappers. Fonts that express shadda+vowel positioning through such wrappers (Amiri, AmiriQuran) misrender in TMP even though they render correctly in browsers / UI Toolkit.
-- TMP's runtime dynamic-atlas adder silently drops codepoints unless **Multi Atlas Textures** is enabled on the font asset. Always enable that toggle for Arabic fonts.
-- Of 42 evaluated fonts, three render shadda+fatha correctly in TMP without patching: **Vazirmatn**, **Tajawal**, **Thmanyah Sans** (the latter two after a simple PF-B rehoming step).
+If you're shipping Arabic in Unity: start with the [Quick-start](#quick-start) below and skim [`FINDINGS.md`](FINDINGS.md) before committing to a font choice.
 
-## Layout
+## What's here
+
+### Python tools (`tools/`)
 
 ```
-unity-arabic/
-├── unity6/         ← main Unity 6.3 project. All editor tooling. Working fonts.
-├── tmp-2022/       ← control project (Unity 2022.3 + standalone TMP preview)
-├── tools/          ← Python utilities: font scorer, rehomer, GPOS/GSUB inspectors
-├── font-cache/     ← gitignored scratch directory for candidate fonts
-├── FINDINGS.md     ← the write-up
-└── README.md
+score-arabic-font.py                Score a font on 10 weighted criteria, with per-letter detail
+rehome-arabic-presentation-forms.py Add PF-B cmap entries from base Arabic glyphs
+shape-with-harfbuzz.py              Reference "what should happen" via HarfBuzz
+inspect-gsub-ligature.py            Walk GSUB for a specific substitution
+inspect-gpos-markmark.py            Walk GPOS for a specific Mark-to-Mark pair
+extract-arabic-mark-variants.py     Feeds the Unity Font Feature Patcher
+fetch-fonts.py + candidate-fonts.txt  Polite downloader for a candidate corpus
 ```
+
+### Editor tools (Unity, `Arabic Study` menu)
+
+```
+Font Table Search      Chip-rendered inspector of any TMP font asset's tables
+RTLTMPro Debugger      Before/after view of RTLTMPro's string transformation
+Font Feature Patcher   Inject missing GPOS records into a font asset (last-resort)
+```
+
+### Findings ([`FINDINGS.md`](FINDINGS.md))
+
+Three TMP issues uncovered during the work, each not documented in TMP's own material:
+
+1. TMP's GSUB/GPOS importer doesn't recurse through OpenType chained-context wrappers. Fonts that express substitution / positioning through such wrappers (Amiri included) misrender in TMP even though they render correctly in browsers and UI Toolkit.
+2. TMP's runtime dynamic-atlas adder silently drops codepoints unless **Multi Atlas Textures** is enabled. Always enable it.
+3. Direct per-letter Mark-to-Base coverage is a much better TMP-suitability predictor than overall feature richness. Noto Naskh tops the as-is scoreboard but misrenders in practice; high-harakat-coverage fonts (Vazirmatn, Tajawal, Thmanyah Sans) render correctly.
+
+The document also covers the Amiri shadda+fatha bug in detail, the 42-font evaluation results, and recommendations for shipping.
 
 ## Quick-start
 
-Open `unity6/` in Unity 6000.3.14f1. Package Manager resolves UGUI + RTLTMPro automatically. Use one of the three validated fonts from `unity6/Assets/Fonts/` (suffix `-pfb-rehomed`) for any Arabic UI text. Enable Multi Atlas Textures on the font asset. See [`FINDINGS.md#quick-start`](FINDINGS.md#quick-start) for the longer version.
+Render Arabic in Unity 6.3:
 
-To evaluate a different font for TMP-compatibility:
+1. Clone this repo, open `unity6/` in Unity 6.3.
+2. Package Manager resolves UGUI + RTLTMPro automatically.
+3. Pick one of `unity6/Assets/Fonts/Vazirmatn-Variable-pfb-rehomed.ttf`, `Tajawal-Regular-pfb-rehomed.ttf`, or `ThmanyahSans-Regular-pfb-rehomed.otf`.
+4. Build a TMP SDF font asset from it. **Enable Multi Atlas Textures.**
+5. Use the `RTLTextMeshPro` component for any Arabic text.
+
+Evaluate a different font:
 
 ```bash
 python -m venv .venv && source .venv/Scripts/activate
@@ -34,18 +61,25 @@ pip install fonttools uharfbuzz
 python tools/score-arabic-font.py path/to/font.ttf
 ```
 
-The scorer prints a per-criterion breakdown plus a post-rehome projection. See [`FINDINGS.md`](FINDINGS.md) for the criteria and what they mean.
+The scorer prints per-criterion completeness with the specific missing codepoints / glyph pairs by Unicode name, so you can see exactly what (if anything) the font would need to be usable.
 
-## Editor tools (`Arabic Study` menu in Unity)
+## Layout
 
-- **Run Full Setup** — creates a Tajawal-based TMP font asset + test scene
-- **Font Table Search** — chip-rendered inspector of any TMP font asset
-- **RTLTMPro Debugger** — before/after view of RTLTMPro string transformation
-- **Font Feature Patcher** — last-resort tool for injecting missing GPOS records into a font asset
+```
+unity-arabic/
+├── unity6/         Main Unity 6.3 project — editor tools, validated fonts
+├── tmp-2022/       Control project (Unity 2022.3 LTS + standalone TMP preview)
+├── tools/          Python font-analysis tooling
+├── font-cache/     Gitignored scratch dir for candidate fonts
+├── README.md
+└── FINDINGS.md     Full write-up — recommended reading
+```
 
 ## License notes
 
-- All committed fonts are SIL OFL 1.1 except:
-  - **Dubai Font** (in `font-cache/`, not committed to Unity assets) — Government of Dubai, free for personal use, commercial requires their license.
-  - **Thmanyah Sans** — verify with Thmanyah LLC before shipping commercially; the rehomed version in `unity6/Assets/Fonts/` was sourced via a community mirror.
-- **RTLTMPro** — MIT — fetched via Package Manager from the OmarWKH fork.
+Committed fonts under SIL OFL 1.1 except:
+
+- **Dubai Font** (in `font-cache/` only, not in `unity6/Assets/`) — Government of Dubai. Free for personal use, commercial requires their license.
+- **Thmanyah Sans** — verify with Thmanyah LLC before commercial use; the rehomed copy in `unity6/Assets/Fonts/` was sourced via a community mirror.
+
+**RTLTMPro** — MIT, fetched via Package Manager from the [OmarWKH fork](https://github.com/OmarWKH/RTLTMPro).
