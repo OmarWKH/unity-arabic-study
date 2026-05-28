@@ -1,47 +1,51 @@
-# Unity Arabic Font Support — TMP OpenType Study
+# unity-arabic
 
-A study of Arabic text rendering in Unity 6 with the modern TextMesh Pro pipeline (OpenType Layout: Ligatures, Mark-to-Base, Mark-to-Mark).
+Investigation of Arabic text rendering in Unity 6 with TextMeshPro + RTLTMPro. What started as a "compare TMP preview vs bundled TMP" study turned into a deeper look at why a popular Arabic font (Amiri) misrenders vocalised text in TMP, what TMP's GSUB/GPOS importer leaves on the table, which fonts work reliably anyway, and how to evaluate any new Arabic font for TMP-suitability.
 
-## Background
+**The full write-up is in [`FINDINGS.md`](FINDINGS.md).** Recommended reading if you're shipping Arabic in Unity.
 
-The original hypothesis was that the TMP `3.2.0-pre.15` preview package would fix long-standing Arabic harakat positioning problems, and that comparing it against the older bundled TMP would isolate the impact of OpenType Layout.
+## TL;DR
 
-In practice, on **Unity 6 (`6000.3.14f1`)** that comparison no longer maps to two installable packages:
+- TMP's GSUB/GPOS importer doesn't recurse through OpenType chained-context wrappers. Fonts that express shadda+vowel positioning through such wrappers (Amiri, AmiriQuran) misrender in TMP even though they render correctly in browsers / UI Toolkit.
+- TMP's runtime dynamic-atlas adder silently drops codepoints unless **Multi Atlas Textures** is enabled on the font asset. Always enable that toggle for Arabic fonts.
+- Of 42 evaluated fonts, three render shadda+fatha correctly in TMP without patching: **Vazirmatn**, **Tajawal**, **Thmanyah Sans** (the latter two after a simple PF-B rehoming step).
 
-- `com.unity.ugui` 2.0.0 — the package that bundles TMP in Unity 6 — already contains the OpenType Layout features (Ligatures, Mark-to-Base, Mark-to-Mark, Glyph Adjustment tables). See the [uGUI 2.0.0 Font Assets docs](https://docs.unity3d.com/Packages/com.unity.ugui@2.0/manual/TextMeshPro/FontAssets.html).
-- The standalone `com.unity.textmeshpro` package is deprecated on this Unity version and refuses to install on top — Unity prints `com.unity.textmeshpro is deprecated: TextMeshPro functionalities are now included in the com.unity.ugui package`.
-- So the preview "won" by being merged in. There is no longer a meaningful package-level baseline to compare against.
+## Layout
 
-The study now uses **one Unity 6.3 project** with the bundled TMP, and investigates Arabic rendering through font-asset feature configuration and the RTLTMPro pre-shaping pass instead of through package version diffing.
+```
+unity-arabic/
+├── unity6/         ← main Unity 6.3 project. All editor tooling. Working fonts.
+├── tmp-2022/       ← control project (Unity 2022.3 + standalone TMP preview)
+├── tools/          ← Python utilities: font scorer, rehomer, GPOS/GSUB inspectors
+├── font-cache/     ← gitignored scratch directory for candidate fonts
+├── FINDINGS.md     ← the write-up
+└── README.md
+```
 
-## Project
+## Quick-start
 
-`unity6/` (name kept for now; will be renamed later) — Unity `6000.3.14f1`, bundled TMP via `com.unity.ugui` 2.0.0, with:
+Open `unity6/` in Unity 6000.3.14f1. Package Manager resolves UGUI + RTLTMPro automatically. Use one of the three validated fonts from `unity6/Assets/Fonts/` (suffix `-pfb-rehomed`) for any Arabic UI text. Enable Multi Atlas Textures on the font asset. See [`FINDINGS.md#quick-start`](FINDINGS.md#quick-start) for the longer version.
 
-- **Amiri Regular** (SIL OFL) as the test font, committed at `Assets/Fonts/Amiri-Regular.ttf`.
-- **RTLTMPro** from the OmarWKH fork (`https://github.com/OmarWKH/RTLTMPro.git?path=/UPMPackage`), which adds a `Preserve Shadda` option on top of the upstream v4.0.0 — relevant because the shadda is the diacritic most likely to expose Mark-to-Mark behaviour.
-- An Editor automation menu `Arabic Study → Run Full Setup` (`Assets/Editor/ArabicTestSetup.cs`) that creates a dynamic SDF font asset from Amiri, best-effort enables the OpenType feature tags on it, and builds a side-by-side test scene with one raw `TextMeshProUGUI` and one `RTLTextMeshPro` rendering the same string.
-- A font-table inspector menu `Arabic Study → Font Table Search` (`Assets/Editor/TMPFontTableSearch.cs`) for querying a TMP font asset by character / Unicode codepoint / glyph ID and reading out every Character / Glyph / Ligature / Kerning Pair / Mark-to-Base / Mark-to-Mark record involving that glyph.
+To evaluate a different font for TMP-compatibility:
 
-## Test string
+```bash
+python -m venv .venv && source .venv/Scripts/activate
+pip install fonttools uharfbuzz
+python tools/score-arabic-font.py path/to/font.ttf
+```
 
-`unity6/Assets/ArabicTestString.txt` includes:
+The scorer prints a per-criterion breakdown plus a post-rehome projection. See [`FINDINGS.md`](FINDINGS.md) for the criteria and what they mean.
 
-- Plain Arabic words
-- Words with full harakat (fatha, kasra, damma, sukun, shadda, tanwin)
-- Mark-to-mark cases (shadda + vowel)
-- Bidirectional mixed Arabic / Latin / digits
+## Editor tools (`Arabic Study` menu in Unity)
 
-## First-open workflow
-
-1. Open `unity6/` in Unity Hub. Package Manager resolves UGUI (bundled), RTLTMPro (from the OmarWKH fork).
-2. Accept the TMP Essentials import when prompted.
-3. Run **menu → Arabic Study → Run Full Setup**. This generates the SDF font asset and `Assets/Scenes/ArabicTest.unity`, ready for Play mode.
-4. To inspect what made it into the font asset's tables, use **menu → Arabic Study → Font Table Search**.
-
-See `unity6/SETUP.md` for details and the OpenType-feature notes.
+- **Run Full Setup** — creates a Tajawal-based TMP font asset + test scene
+- **Font Table Search** — chip-rendered inspector of any TMP font asset
+- **RTLTMPro Debugger** — before/after view of RTLTMPro string transformation
+- **Font Feature Patcher** — last-resort tool for injecting missing GPOS records into a font asset
 
 ## License notes
 
-- **Amiri** font — SIL Open Font License 1.1 — redistributed in this repo.
-- **RTLTMPro** — MIT License — fetched via Package Manager from the OmarWKH fork.
+- All committed fonts are SIL OFL 1.1 except:
+  - **Dubai Font** (in `font-cache/`, not committed to Unity assets) — Government of Dubai, free for personal use, commercial requires their license.
+  - **Thmanyah Sans** — verify with Thmanyah LLC before shipping commercially; the rehomed version in `unity6/Assets/Fonts/` was sourced via a community mirror.
+- **RTLTMPro** — MIT — fetched via Package Manager from the OmarWKH fork.
